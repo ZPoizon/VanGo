@@ -11,8 +11,7 @@ Sistemas (ADS)**.
 ## 📌 Sobre o Projeto
 
 O **VanGo** é uma solução mobile desenvolvida em **Flutter/Dart** para otimizar
-o transporte universitário de estudantes entre cidades (ex: Capão Bonito →
-Itapetininga).
+o transporte universitário de estudantes entre cidades (qualquer rota de van).
 
 O sistema organiza a rotina de viagens com dois perfis de acesso:
 

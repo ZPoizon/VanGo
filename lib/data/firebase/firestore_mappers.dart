@@ -6,7 +6,7 @@ import '../../models/presenca.dart';
 import '../../models/usuario.dart';
 import '../../models/viagem.dart';
 
-/// Grupo único desta versão (Capão Bonito → Itapetininga).
+/// Grupo padrão do sistema (pode ser configurado para qualquer rota).
 ///
 /// Pode ser sobrescrito por perfil/documento no Firestore. O script
 /// `tool/seed_firestore.js` cria o grupo com este mesmo ID.

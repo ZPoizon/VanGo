@@ -105,7 +105,7 @@ async function main() {
 
   await db.collection('grupos').doc(grupoId).set(
     {
-      nome: 'Capão Bonito → Itapetininga',
+      nome: 'Transporte Universitário',
       motoristaId: usuario.uid,
       criadoEm: agora,
       atualizadoEm: agora,

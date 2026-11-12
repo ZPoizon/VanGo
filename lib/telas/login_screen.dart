@@ -100,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Capão Bonito → Itapetininga',
+                'Transporte Universitário por Van',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,

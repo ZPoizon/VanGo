@@ -9,6 +9,6 @@ void main() {
 
     // A tela de login deve aparecer no modo demonstração.
     expect(find.text('VanGo'), findsWidgets);
-    expect(find.text('Capão Bonito → Itapetininga'), findsOneWidget);
+    expect(find.text('Transporte Universitário por Van'), findsOneWidget);
   });
 }
