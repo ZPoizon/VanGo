@@ -96,14 +96,15 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
       ),
     );
+    final emailDigitado = controller.text.trim();
     controller.dispose();
 
-    if (enviar != true || !mounted) return;
+    if (enviar != true || emailDigitado.isEmpty || !mounted) return;
 
     final resultado = await StoreScope.read(context)
-        .enviarRecuperacaoSenha(_email.text);
+        .enviarRecuperacaoSenha(emailDigitado);
     if (!mounted) return;
-    mostrarToast(context, resultado.mensagem ?? 'Solicitação enviada.');
+    mostrarToast(context, resultado.mensagem ?? 'Solicitação enviada para $emailDigitado.');
   }
 
   @override
