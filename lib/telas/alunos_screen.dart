@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../models/usuario.dart';
 import '../data/dados_mock.dart';
@@ -28,18 +29,20 @@ class _AlunosScreenState extends State<AlunosScreen> {
       builder: (context) {
         final emailCtrl = TextEditingController();
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text('Convidar novo aluno'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Informe o e-mail do aluno para enviar o convite de cadastro na van:'),
+              const Text(
+                'Informe o e-mail do aluno para enviar o convite de cadastro na van:',
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: emailCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'aluno@email.com',
-                ),
+                decoration: const InputDecoration(hintText: 'aluno@email.com'),
               ),
             ],
           ),
@@ -71,7 +74,8 @@ class _AlunosScreenState extends State<AlunosScreen> {
     final query = _buscaController.text.trim().toLowerCase();
 
     final alunosFiltrados = _todosAlunos.where((a) {
-      final matchesQuery = a.nome.toLowerCase().contains(query) ||
+      final matchesQuery =
+          a.nome.toLowerCase().contains(query) ||
           (a.faculdade ?? '').toLowerCase().contains(query);
       if (!matchesQuery) return false;
 
@@ -84,9 +88,7 @@ class _AlunosScreenState extends State<AlunosScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Alunos'),
-      ),
+      appBar: AppBar(title: const Text('Alunos')),
       body: SafeArea(
         child: Column(
           children: [
@@ -100,7 +102,10 @@ class _AlunosScreenState extends State<AlunosScreen> {
                     onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration(
                       hintText: 'Buscar por nome',
-                      prefixIcon: Icon(Icons.search, color: AppTheme.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: AppTheme.textSecondary,
+                      ),
                       fillColor: Colors.white,
                       filled: true,
                     ),
@@ -153,7 +158,8 @@ class _AlunosScreenState extends State<AlunosScreen> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         aluno.nome,
@@ -234,7 +240,9 @@ class _AlunosScreenState extends State<AlunosScreen> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
+                  color: isSelected
+                      ? AppTheme.textPrimary
+                      : AppTheme.textSecondary,
                 ),
               ),
               if (badgeCount != null) ...[
@@ -277,7 +285,10 @@ class _AlunosScreenState extends State<AlunosScreen> {
             children: [
               Text(
                 aluno.nome,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               ListTile(
@@ -292,7 +303,10 @@ class _AlunosScreenState extends State<AlunosScreen> {
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.location_on, color: AppTheme.primaryDark),
+                leading: const Icon(
+                  Icons.location_on,
+                  color: AppTheme.primaryDark,
+                ),
                 title: Text(aluno.endereco ?? 'Não informado'),
               ),
               const SizedBox(height: 16),

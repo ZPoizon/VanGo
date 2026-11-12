@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   // Paleta de cores baseada no design Figma do VanGo
-  static const Color primaryDark = Color(0xFF1B2A4E); // Azul escuro dos cabeçalhos e botões
-  static const Color primaryYellow = Color(0xFFFBBF24); // Amarelo vibrante do ícone VanGo
+  static const Color primaryDark = Color(
+    0xFF1B2A4E,
+  ); // Azul escuro dos cabeçalhos e botões
+  static const Color primaryYellow = Color(
+    0xFFFBBF24,
+  ); // Amarelo vibrante do ícone VanGo
   static const Color background = Color(0xFFF6F8FA); // Fundo claro das telas
   static const Color cardBackground = Colors.white;
   static const Color textPrimary = Color(0xFF1E293B);
@@ -61,10 +65,7 @@ class AppTheme {
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
       cardTheme: CardThemeData(
@@ -78,7 +79,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: borderLight),

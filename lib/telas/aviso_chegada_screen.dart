@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/botao_primario.dart';
 
 class AvisoChegadaScreen extends StatefulWidget {
   final bool isMotorista;
 
-  const AvisoChegadaScreen({
-    super.key,
-    this.isMotorista = false,
-  });
+  const AvisoChegadaScreen({super.key, this.isMotorista = false});
 
   @override
   State<AvisoChegadaScreen> createState() => _AvisoChegadaScreenState();
@@ -25,7 +23,9 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Aviso "A van está chegando" enviado para todos os alunos!'),
+        content: Text(
+          'Aviso "A van está chegando" enviado para todos os alunos!',
+        ),
         backgroundColor: AppTheme.primaryDark,
         duration: Duration(seconds: 3),
       ),
@@ -50,9 +50,7 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Aviso de chegada'),
-      ),
+      appBar: AppBar(title: const Text('Aviso de chegada')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -85,7 +83,9 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: AppTheme.primaryYellow.withValues(alpha: 0.4),
+                            color: AppTheme.primaryYellow.withValues(
+                              alpha: 0.4,
+                            ),
                             blurRadius: 12,
                             offset: const Offset(0, 4),
                           ),
@@ -120,7 +120,10 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                     const SizedBox(height: 24),
                     if (_alunoConfirmou) ...[
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: AppTheme.badgeIdaEVoltaBg,
                           borderRadius: BorderRadius.circular(12),
@@ -128,7 +131,11 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.check_circle_rounded, color: AppTheme.badgeIdaEVoltaText, size: 20),
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: AppTheme.badgeIdaEVoltaText,
+                              size: 20,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'Você respondeu: Estou indo! (06:42)',
@@ -170,7 +177,10 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                       children: [
                         const Row(
                           children: [
-                            Icon(Icons.build_circle_outlined, color: AppTheme.primaryDark),
+                            Icon(
+                              Icons.build_circle_outlined,
+                              color: AppTheme.primaryDark,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'Controle do Motorista (Simulação)',
@@ -184,7 +194,10 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                         const SizedBox(height: 12),
                         const Text(
                           'Como motorista, toque abaixo para disparar o aviso de proximidade para os alunos da rota:',
-                          style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         BotaoPrimario(

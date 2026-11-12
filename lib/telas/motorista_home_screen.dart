@@ -24,9 +24,11 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(_chamadaAberta
-            ? 'Chamada de amanhã (Quarta, 19/06) foi aberta!'
-            : 'Chamada encerrada.'),
+        content: Text(
+          _chamadaAberta
+              ? 'Chamada de amanhã (Quarta, 19/06) foi aberta!'
+              : 'Chamada encerrada.',
+        ),
         backgroundColor: AppTheme.primaryDark,
         duration: const Duration(seconds: 2),
       ),
@@ -54,12 +56,12 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
         ),
         subtitle: Text(
           subtitulo,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppTheme.textSecondary,
-          ),
+          style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
         ),
-        trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+        trailing: const Icon(
+          Icons.chevron_right,
+          color: AppTheme.textSecondary,
+        ),
         onTap: onTap,
       ),
     );
@@ -143,7 +145,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                             width: 10,
                             height: 10,
                             decoration: BoxDecoration(
-                              color: _chamadaAberta ? Colors.green : Colors.grey,
+                              color: _chamadaAberta
+                                  ? Colors.green
+                                  : Colors.grey,
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -161,7 +165,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _chamadaAberta ? 'Chamada aberta para amanhã' : 'Nenhuma chamada aberta',
+                        _chamadaAberta
+                            ? 'Chamada aberta para amanhã'
+                            : 'Nenhuma chamada aberta',
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -190,7 +196,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        _chamadaAberta ? 'FECHAR CHAMADA DE AMANHÃ' : 'ABRIR CHAMADA DE AMANHÃ',
+                        _chamadaAberta
+                            ? 'FECHAR CHAMADA DE AMANHÃ'
+                            : 'ABRIR CHAMADA DE AMANHÃ',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -201,10 +209,7 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                       const SizedBox(height: 2),
                       const Text(
                         'Quarta, 19/06',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white70,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                     ],
                   ),
@@ -221,7 +226,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ListaViagemScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const ListaViagemScreen(),
+                    ),
                   );
                 },
               ),
@@ -233,7 +240,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const AlunosScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const AlunosScreen(),
+                    ),
                   );
                 },
               ),
@@ -245,7 +254,9 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const HistoricoScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const HistoricoScreen(),
+                    ),
                   );
                 },
               ),
@@ -258,7 +269,8 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const AvisoChegadaScreen(isMotorista: true),
+                      builder: (context) =>
+                          const AvisoChegadaScreen(isMotorista: true),
                     ),
                   );
                 },
@@ -267,8 +279,15 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
               Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: const Icon(Icons.logout_rounded, size: 28, color: Colors.redAccent),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: const Icon(
+                    Icons.logout_rounded,
+                    size: 28,
+                    color: Colors.redAccent,
+                  ),
                   title: const Text(
                     'Sair',
                     style: TextStyle(
@@ -277,11 +296,16 @@ class _MotoristaHomeScreenState extends State<MotoristaHomeScreen> {
                       color: Colors.redAccent,
                     ),
                   ),
-                  trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
                   onTap: () {
                     Navigator.pushReplacement(
                       context,
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const LoginScreen(),
+                      ),
                     );
                   },
                 ),

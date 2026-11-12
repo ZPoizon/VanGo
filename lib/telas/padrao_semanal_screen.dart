@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/botao_primario.dart';
 
@@ -33,9 +34,7 @@ class _PadraoSemanalScreenState extends State<PadraoSemanalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Padrão semanal'),
-      ),
+      appBar: AppBar(title: const Text('Padrão semanal')),
       body: SafeArea(
         child: Column(
           children: [
@@ -59,7 +58,10 @@ class _PadraoSemanalScreenState extends State<PadraoSemanalScreen> {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -81,7 +83,9 @@ class _PadraoSemanalScreenState extends State<PadraoSemanalScreen> {
                                     selectedColor: AppTheme.badgeIdaEVoltaBg,
                                     checkmarkColor: AppTheme.badgeIdaEVoltaText,
                                     labelStyle: TextStyle(
-                                      color: ida ? AppTheme.badgeIdaEVoltaText : AppTheme.textSecondary,
+                                      color: ida
+                                          ? AppTheme.badgeIdaEVoltaText
+                                          : AppTheme.textSecondary,
                                       fontWeight: FontWeight.bold,
                                     ),
                                     onSelected: (bool selected) {
@@ -95,16 +99,21 @@ class _PadraoSemanalScreenState extends State<PadraoSemanalScreen> {
                                 Expanded(
                                   child: FilterChip(
                                     selected: volta,
-                                    label: Text(volta ? 'Volta: Sim' : 'Volta: Não'),
+                                    label: Text(
+                                      volta ? 'Volta: Sim' : 'Volta: Não',
+                                    ),
                                     selectedColor: AppTheme.badgeIdaEVoltaBg,
                                     checkmarkColor: AppTheme.badgeIdaEVoltaText,
                                     labelStyle: TextStyle(
-                                      color: volta ? AppTheme.badgeIdaEVoltaText : AppTheme.textSecondary,
+                                      color: volta
+                                          ? AppTheme.badgeIdaEVoltaText
+                                          : AppTheme.textSecondary,
                                       fontWeight: FontWeight.bold,
                                     ),
                                     onSelected: (bool selected) {
                                       setState(() {
-                                        _padraoSemanal[dia]!['volta'] = selected;
+                                        _padraoSemanal[dia]!['volta'] =
+                                            selected;
                                       });
                                     },
                                   ),

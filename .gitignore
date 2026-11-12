@@ -46,3 +46,15 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Firebase / credenciais locais (nunca comitar)
+firebase.local.json
+service-account*.json
+tool/service-account*.json
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+ios/firebase_app_id_file.json
+.firebase/
+functions/node_modules/
+functions/.env
+functions/*.local

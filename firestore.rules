@@ -1,0 +1,168 @@
+rules_version = '2';
+
+// Regras do Firestore do VanGo.
+//
+// Modelo:
+//   usuarios/{uid}                     perfil, status, grupoId
+//   usuarios/{uid}/tokens/{token}      tokens FCM do dispositivo
+//   chamadas/{id}                      chamada aberta/encerrada do dia
+//   respostas/{chamadaId}_{alunoId}    resposta de presença do aluno
+//   viagens/{id}                       viagem em andamento/histórico
+//   padroes/{uid}                      padrão semanal do aluno
+//   convites/{token}                   convite de cadastro do motorista
+//   notificacoes/{id}                  fila de push (lida pela Cloud Function)
+//   grupos/{id}                        metadados do grupo
+//
+// O app filtra as consultas por `grupoId`; as regras garantem que somente
+// usuários autenticados leem os dados do grupo. As escritas são restritas ao
+// motorista do grupo ou ao próprio aluno.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function perfilAtual() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function ehMotorista() {
+      return autenticado() && perfilAtual().perfil == 'motorista';
+    }
+
+    function meuGrupo() {
+      return perfilAtual().grupoId;
+    }
+
+    function grupoDoDado(dados) {
+      return dados.grupoId;
+    }
+
+    // ------------------------------------------------------------- grupos
+    match /grupos/{grupoId} {
+      allow read: if autenticado();
+      // Somente o motorista do próprio grupo pode editar os metadados.
+      allow write: if ehMotorista() && grupoId == meuGrupo();
+    }
+
+    // ------------------------------------------------------------ usuários
+    match /usuarios/{uid} {
+      allow get: if autenticado();
+      // As consultas do app sempre filtram por grupoId.
+      allow list: if autenticado();
+
+      allow create: if autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.perfil == 'aluno'
+        && request.resource.data.status == 'pendente'
+        && request.resource.data.grupoId is string;
+
+      allow update: if autenticado() && (
+        // Motorista do grupo aprova, desativa e edita alunos.
+        (
+          ehMotorista()
+          && resource.data.grupoId == meuGrupo()
+          && request.resource.data.grupoId == resource.data.grupoId
+        )
+        // O próprio aluno edita o perfil, mas não troca perfil/status/grupo.
+        || (
+          request.auth.uid == uid
+          && request.resource.data.perfil == resource.data.perfil
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.grupoId == resource.data.grupoId
+        )
+      );
+
+      allow delete: if ehMotorista() && resource.data.grupoId == meuGrupo();
+
+      // Tokens FCM: cada usuário gerencia apenas os próprios dispositivos.
+      match /tokens/{token} {
+        allow read, write: if autenticado() && request.auth.uid == uid;
+      }
+    }
+
+    // ------------------------------------------------------------- chamadas
+    match /chamadas/{chamadaId} {
+      allow read: if autenticado();
+      allow create: if ehMotorista()
+        && grupoDoDado(request.resource.data) == meuGrupo();
+      allow update: if ehMotorista()
+        && resource.data.grupoId == meuGrupo()
+        && request.resource.data.grupoId == meuGrupo();
+      allow delete: if ehMotorista() && resource.data.grupoId == meuGrupo();
+    }
+
+    // ------------------------------------------------------------- respostas
+    match /respostas/{respostaId} {
+      allow read: if autenticado();
+
+      // O ID é sempre "{chamadaId}_{alunoId}".
+      function ehDoAluno() {
+        return respostaId.split('_')[1] == request.auth.uid;
+      }
+
+      allow create, update: if autenticado()
+        && (ehDoAluno() || ehMotorista());
+      allow delete: if ehMotorista() || (autenticado() && ehDoAluno());
+    }
+
+    // -------------------------------------------------------------- viagens
+    match /viagens/{viagemId} {
+      allow read: if autenticado();
+      allow create: if ehMotorista()
+        && grupoDoDado(request.resource.data) == meuGrupo();
+      allow delete: if ehMotorista()
+        && resource.data.grupoId == meuGrupo();
+
+      allow update: if autenticado() && (
+        // Motorista conduz a viagem.
+        (
+          ehMotorista()
+          && resource.data.grupoId == meuGrupo()
+          && request.resource.data.grupoId == meuGrupo()
+        )
+        // Aluno só altera a própria confirmação (estou indo / liberado).
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['confirmacoes'])
+          && request.resource.data.confirmacoes is list
+          && request.resource.data.confirmacoes.size()
+            == resource.data.confirmacoes.size()
+        )
+      );
+    }
+
+    // ------------------------------------------------------------- padrões
+    match /padroes/{uid} {
+      allow read, write: if autenticado() && request.auth.uid == uid;
+    }
+
+    // ------------------------------------------------------------- convites
+    match /convites/{token} {
+      // O cadastro acontece antes do login, por isso o get é público.
+      // O token é longo e difícil de adivinhar; listagem fica bloqueada.
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if ehMotorista()
+        && request.resource.data.grupoId == meuGrupo();
+      allow delete: if ehMotorista();
+    }
+
+    // --------------------------------------------------------- notificações
+    match /notificacoes/{notificacaoId} {
+      // A Cloud Function usa o Admin SDK (ignora regras). O cliente apenas
+      // enfileira a notificação quando o motorista avisa os alunos.
+      allow read: if false;
+      allow create: if ehMotorista()
+        && grupoDoDado(request.resource.data) == meuGrupo();
+      allow update, delete: if false;
+    }
+
+    // Negar tudo o que não foi tratado acima.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

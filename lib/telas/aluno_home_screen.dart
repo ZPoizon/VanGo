@@ -22,10 +22,8 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
     final result = await Navigator.push<Map<String, bool>>(
       context,
       MaterialPageRoute(
-        builder: (context) => ConfirmacaoScreen(
-          idaInicial: _vaiIda,
-          voltaInicial: _vaiVolta,
-        ),
+        builder: (context) =>
+            ConfirmacaoScreen(idaInicial: _vaiIda, voltaInicial: _vaiVolta),
       ),
     );
 
@@ -108,7 +106,8 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const AvisoChegadaScreen(isMotorista: false),
+                      builder: (context) =>
+                          const AvisoChegadaScreen(isMotorista: false),
                     ),
                   );
                 },
@@ -117,7 +116,10 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                   decoration: BoxDecoration(
                     color: AppTheme.primaryYellow.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.primaryYellow, width: 1.5),
+                    border: Border.all(
+                      color: AppTheme.primaryYellow,
+                      width: 1.5,
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -157,7 +159,10 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                           ],
                         ),
                       ),
-                      const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.textSecondary,
+                      ),
                     ],
                   ),
                 ),
@@ -177,7 +182,11 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                         children: [
                           const Row(
                             children: [
-                              Icon(Icons.today_rounded, size: 20, color: AppTheme.primaryDark),
+                              Icon(
+                                Icons.today_rounded,
+                                size: 20,
+                                color: AppTheme.primaryDark,
+                              ),
                               SizedBox(width: 8),
                               Text(
                                 'Presença de Hoje',
@@ -190,7 +199,10 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                             ],
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: (_vaiIda || _vaiVolta)
                                   ? AppTheme.badgeIdaEVoltaBg
@@ -201,10 +213,10 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                               (_vaiIda && _vaiVolta)
                                   ? 'Ida e Volta'
                                   : _vaiIda
-                                      ? 'Só Ida'
-                                      : _vaiVolta
-                                          ? 'Só Volta'
-                                          : 'Ausente',
+                                  ? 'Só Ida'
+                                  : _vaiVolta
+                                  ? 'Só Volta'
+                                  : 'Ausente',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -216,7 +228,11 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                           ),
                         ],
                       ),
-                      const Divider(height: 24, thickness: 1, color: AppTheme.borderLight),
+                      const Divider(
+                        height: 24,
+                        thickness: 1,
+                        color: AppTheme.borderLight,
+                      ),
                       Row(
                         children: [
                           Expanded(
@@ -245,7 +261,9 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                                             ? Icons.check_circle_rounded
                                             : Icons.cancel_rounded,
                                         size: 18,
-                                        color: _vaiIda ? Colors.green : Colors.red,
+                                        color: _vaiIda
+                                            ? Colors.green
+                                            : Colors.red,
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
@@ -253,7 +271,9 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: _vaiIda ? Colors.green[800] : Colors.red[800],
+                                          color: _vaiIda
+                                              ? Colors.green[800]
+                                              : Colors.red[800],
                                         ),
                                       ),
                                     ],
@@ -289,7 +309,9 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                                             ? Icons.check_circle_rounded
                                             : Icons.cancel_rounded,
                                         size: 18,
-                                        color: _vaiVolta ? Colors.green : Colors.red,
+                                        color: _vaiVolta
+                                            ? Colors.green
+                                            : Colors.red,
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
@@ -297,7 +319,9 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: _vaiVolta ? Colors.green[800] : Colors.red[800],
+                                          color: _vaiVolta
+                                              ? Colors.green[800]
+                                              : Colors.red[800],
                                         ),
                                       ),
                                     ],
@@ -330,14 +354,20 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
               // Opção Padrão Semanal
               Card(
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   leading: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: AppTheme.background,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.date_range_rounded, color: AppTheme.primaryDark),
+                    child: const Icon(
+                      Icons.date_range_rounded,
+                      color: AppTheme.primaryDark,
+                    ),
                   ),
                   title: const Text(
                     'Padrão semanal',
@@ -347,7 +377,10 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
                     'Configure os dias fixos que você utiliza a van',
                     style: TextStyle(fontSize: 13),
                   ),
-                  trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -364,16 +397,27 @@ class _AlunoHomeScreenState extends State<AlunoHomeScreen> {
               // Botão Sair / Trocar perfil
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+                  leading: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.redAccent,
+                  ),
                   title: const Text(
                     'Sair da conta',
-                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.redAccent),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.redAccent,
+                    ),
                   ),
-                  trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary,
+                  ),
                   onTap: () {
                     Navigator.pushReplacement(
                       context,
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const LoginScreen(),
+                      ),
                     );
                   },
                 ),

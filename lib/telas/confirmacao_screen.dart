@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/botao_primario.dart';
 
@@ -81,10 +82,14 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: BoxDecoration(
-                        color: selecao ? AppTheme.badgeIdaEVoltaBg : AppTheme.background,
+                        color: selecao
+                            ? AppTheme.badgeIdaEVoltaBg
+                            : AppTheme.background,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: selecao ? AppTheme.badgeIdaEVoltaText : AppTheme.borderLight,
+                          color: selecao
+                              ? AppTheme.badgeIdaEVoltaText
+                              : AppTheme.borderLight,
                           width: selecao ? 2 : 1,
                         ),
                       ),
@@ -94,7 +99,9 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                           Icon(
                             Icons.check_circle_rounded,
                             size: 20,
-                            color: selecao ? AppTheme.badgeIdaEVoltaText : AppTheme.textSecondary,
+                            color: selecao
+                                ? AppTheme.badgeIdaEVoltaText
+                                : AppTheme.textSecondary,
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -102,7 +109,9 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: selecao ? AppTheme.badgeIdaEVoltaText : AppTheme.textSecondary,
+                              color: selecao
+                                  ? AppTheme.badgeIdaEVoltaText
+                                  : AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -118,10 +127,14 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: BoxDecoration(
-                        color: !selecao ? AppTheme.badgeNaoVaiBg : AppTheme.background,
+                        color: !selecao
+                            ? AppTheme.badgeNaoVaiBg
+                            : AppTheme.background,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: !selecao ? AppTheme.badgeNaoVaiText : AppTheme.borderLight,
+                          color: !selecao
+                              ? AppTheme.badgeNaoVaiText
+                              : AppTheme.borderLight,
                           width: !selecao ? 2 : 1,
                         ),
                       ),
@@ -131,7 +144,9 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                           Icon(
                             Icons.cancel_rounded,
                             size: 20,
-                            color: !selecao ? AppTheme.badgeNaoVaiText : AppTheme.textSecondary,
+                            color: !selecao
+                                ? AppTheme.badgeNaoVaiText
+                                : AppTheme.textSecondary,
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -139,7 +154,9 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: !selecao ? AppTheme.badgeNaoVaiText : AppTheme.textSecondary,
+                              color: !selecao
+                                  ? AppTheme.badgeNaoVaiText
+                                  : AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -159,9 +176,7 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Minha presença'),
-      ),
+      appBar: AppBar(title: const Text('Minha presença')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -206,10 +221,7 @@ class _ConfirmacaoScreenState extends State<ConfirmacaoScreen> {
 
               const Spacer(),
 
-              BotaoPrimario(
-                texto: 'Salvar confirmação',
-                onPressed: _salvar,
-              ),
+              BotaoPrimario(texto: 'Salvar confirmação', onPressed: _salvar),
             ],
           ),
         ),

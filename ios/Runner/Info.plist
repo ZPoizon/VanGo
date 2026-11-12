@@ -53,6 +53,19 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>O VanGo usa a câmera para atualizar sua foto de perfil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>O VanGo acessa suas fotos para atualizar sua foto de perfil.</string>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>O VanGo envia avisos de chegada da van e lembretes da chamada.</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

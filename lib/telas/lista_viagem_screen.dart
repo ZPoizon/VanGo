@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../models/usuario.dart';
 import '../data/dados_mock.dart';
@@ -66,13 +67,13 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responderamCount = _listaAlunos.where((a) => a.status != StatusPresenca.semResposta).length;
+    final responderamCount = _listaAlunos
+        .where((a) => a.status != StatusPresenca.semResposta)
+        .length;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Lista do dia'),
-      ),
+      appBar: AppBar(title: const Text('Lista do dia')),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -84,7 +85,10 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
               children: [
                 RichText(
                   text: TextSpan(
-                    style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: AppTheme.textSecondary,
+                    ),
                     children: [
                       TextSpan(
                         text: '$responderamCount de ${_listaAlunos.length} ',
@@ -141,19 +145,23 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               itemCount: _listaAlunos.length,
-              separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.borderLight),
+              separatorBuilder: (context, index) =>
+                  const Divider(height: 1, color: AppTheme.borderLight),
               itemBuilder: (context, index) {
                 final item = _listaAlunos[index];
 
                 // Aplicar filtro
                 if (_filtro == 'CONFIRMADOS' &&
-                    (item.status == StatusPresenca.naoVai || item.status == StatusPresenca.semResposta)) {
+                    (item.status == StatusPresenca.naoVai ||
+                        item.status == StatusPresenca.semResposta)) {
                   return const SizedBox.shrink();
                 }
-                if (_filtro == 'NAO_VAI' && item.status != StatusPresenca.naoVai) {
+                if (_filtro == 'NAO_VAI' &&
+                    item.status != StatusPresenca.naoVai) {
                   return const SizedBox.shrink();
                 }
-                if (_filtro == 'SEM_RESPOSTA' && item.status != StatusPresenca.semResposta) {
+                if (_filtro == 'SEM_RESPOSTA' &&
+                    item.status != StatusPresenca.semResposta) {
                   return const SizedBox.shrink();
                 }
 
@@ -186,7 +194,11 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
                               const SizedBox(height: 4),
                               Row(
                                 children: [
-                                  const Icon(Icons.check, size: 14, color: AppTheme.badgeAvisadoText),
+                                  const Icon(
+                                    Icons.check,
+                                    size: 14,
+                                    color: AppTheme.badgeAvisadoText,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     'Estou indo - ${item.horarioEstouIndo}',
@@ -207,7 +219,10 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
                         children: [
                           if (item.horarioAvisado != null) ...[
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               margin: const EdgeInsets.only(bottom: 6),
                               decoration: BoxDecoration(
                                 color: AppTheme.badgeAvisadoBg,

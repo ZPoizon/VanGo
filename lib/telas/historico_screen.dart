@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../models/usuario.dart';
 import '../data/dados_mock.dart';
@@ -40,7 +41,9 @@ class _HistoricoScreenState extends State<HistoricoScreen> {
             ...periodos.map(
               (p) => ListTile(
                 title: Text(p),
-                trailing: p == _periodoAtual ? const Icon(Icons.check, color: AppTheme.primaryDark) : null,
+                trailing: p == _periodoAtual
+                    ? const Icon(Icons.check, color: AppTheme.primaryDark)
+                    : null,
                 onTap: () {
                   setState(() {
                     _periodoAtual = p;
@@ -59,9 +62,7 @@ class _HistoricoScreenState extends State<HistoricoScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Histórico'),
-      ),
+      appBar: AppBar(title: const Text('Histórico')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20.0),
@@ -77,7 +78,10 @@ class _HistoricoScreenState extends State<HistoricoScreen> {
                     color: AppTheme.background,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.calendar_today_rounded, color: AppTheme.primaryDark),
+                  child: const Icon(
+                    Icons.calendar_today_rounded,
+                    color: AppTheme.primaryDark,
+                  ),
                 ),
                 title: const Text(
                   'PERÍODO · TOQUE PARA ALTERAR',
@@ -96,7 +100,10 @@ class _HistoricoScreenState extends State<HistoricoScreen> {
                     color: AppTheme.textPrimary,
                   ),
                 ),
-                trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
               ),
             ),
 
@@ -162,7 +169,10 @@ class _HistoricoScreenState extends State<HistoricoScreen> {
                           ],
                         ),
                       ),
-                      const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.textSecondary,
+                      ),
                     ],
                   ),
                 ),

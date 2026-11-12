@@ -4,6 +4,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Firebase: o plugin do Google Services só é aplicado quando as credenciais
+// existem. Sem o arquivo, o app compila e roda em modo demonstração.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.vango.vango"
     compileSdk = flutter.compileSdkVersion

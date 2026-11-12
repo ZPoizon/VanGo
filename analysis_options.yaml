@@ -16,6 +16,11 @@ analyzer:
     - ios/**
     - web/**
     - windows/**
+    # Código legado da primeira versão (substituído por lib/app, lib/features).
+    - lib/app.dart
+    - lib/telas/**
+    - lib/theme/**
+    - lib/data/dados_mock.dart
 
 linter:
   # The lint rules applied to this project can be customized in the

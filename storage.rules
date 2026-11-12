@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// Regras do Cloud Storage do VanGo.
+//
+// Única pasta usada pelo app: usuarios/{uid}/foto.{ext} (foto de perfil).
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /usuarios/{uid}/{arquivo} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && arquivo.matches('foto\\..*')
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
