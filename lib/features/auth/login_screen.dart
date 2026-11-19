@@ -104,7 +104,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final resultado = await StoreScope.read(context)
         .enviarRecuperacaoSenha(emailDigitado);
     if (!mounted) return;
-    mostrarToast(context, resultado.mensagem ?? 'Solicitação enviada para $emailDigitado.');
+    mostrarToast(
+      context,
+      resultado.mensagem ?? 'Solicitação enviada para $emailDigitado.',
+    );
   }
 
   @override

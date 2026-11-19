@@ -58,9 +58,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     if (_filtroData != null) {
       viagens = viagens.where((v) {
-        final data = DateTime(v.dataViagem.year, v.dataViagem.month, v.dataViagem.day);
-        final inicio = DateTime(_filtroData!.start.year, _filtroData!.start.month, _filtroData!.start.day);
-        final fim = DateTime(_filtroData!.end.year, _filtroData!.end.month, _filtroData!.end.day, 23, 59, 59);
+        final data = DateTime(
+          v.dataViagem.year,
+          v.dataViagem.month,
+          v.dataViagem.day,
+        );
+        final inicio = DateTime(
+          _filtroData!.start.year,
+          _filtroData!.start.month,
+          _filtroData!.start.day,
+        );
+        final fim = DateTime(
+          _filtroData!.end.year,
+          _filtroData!.end.month,
+          _filtroData!.end.day,
+          23,
+          59,
+          59,
+        );
         return data.isAfter(inicio.subtract(const Duration(seconds: 1))) &&
             data.isBefore(fim);
       }).toList();
@@ -90,12 +105,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: Row(
                   children: [
                     FilterChip(
-                      label: Text(_filtroData == null
-                          ? 'Período'
-                          : '${formatarDataCurta(_filtroData!.start)} - ${formatarDataCurta(_filtroData!.end)}'),
+                      label: Text(
+                        _filtroData == null
+                            ? 'Período'
+                            : '${formatarDataCurta(_filtroData!.start)} - ${formatarDataCurta(_filtroData!.end)}',
+                      ),
                       selected: _filtroData != null,
                       onSelected: (_) => _selecionarData(),
-                      avatar: const Icon(Icons.calendar_month_outlined, size: 16),
+                      avatar: const Icon(
+                        Icons.calendar_month_outlined,
+                        size: 16,
+                      ),
                     ),
                     const SizedBox(width: AppSpacing.xs),
                     ChoiceChip(
@@ -107,19 +127,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ChoiceChip(
                       label: const Text('Ida'),
                       selected: _filtroSentido == SentidoViagem.ida,
-                      onSelected: (_) => setState(() => _filtroSentido = SentidoViagem.ida),
+                      onSelected: (_) =>
+                          setState(() => _filtroSentido = SentidoViagem.ida),
                     ),
                     const SizedBox(width: AppSpacing.xs),
                     ChoiceChip(
                       label: const Text('Volta'),
                       selected: _filtroSentido == SentidoViagem.volta,
-                      onSelected: (_) => setState(() => _filtroSentido = SentidoViagem.volta),
+                      onSelected: (_) =>
+                          setState(() => _filtroSentido = SentidoViagem.volta),
                     ),
                     if (temFiltroAtivo) ...[
                       const SizedBox(width: AppSpacing.xs),
                       IconButton(
                         tooltip: 'Limpar filtros',
-                        icon: const Icon(Icons.clear_all_rounded, color: AppColors.muted),
+                        icon: const Icon(
+                          Icons.clear_all_rounded,
+                          color: AppColors.muted,
+                        ),
                         onPressed: _limparFiltros,
                       ),
                     ],
@@ -146,17 +171,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           const SizedBox(height: AppSpacing.xs),
                           for (final viagem in entrada.value)
                             Padding(
-                              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                              padding: const EdgeInsets.only(
+                                bottom: AppSpacing.sm,
+                              ),
                               child: VangoCard(
-                                onTap: () =>
-                                    context.push('/driver/history/${viagem.id}'),
+                                onTap: () => context.push(
+                                  '/driver/history/${viagem.id}',
+                                ),
                                 child: Row(
                                   children: [
                                     _BadgeSentido(sentido: viagem.sentido),
                                     const SizedBox(width: AppSpacing.sm),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             '${formatarDataLonga(viagem.dataViagem)} · ${viagem.sentido.label}',

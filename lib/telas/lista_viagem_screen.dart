@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import '../models/usuario.dart';
+import '../models/presenca.dart';
 import '../data/dados_mock.dart';
 
 class ListaViagemScreen extends StatefulWidget {

@@ -64,6 +64,10 @@ class Usuario {
   bool get ativo => status == StatusConta.ativo;
   bool get pendente => status == StatusConta.pendente;
 
+  String? get faculdade => instituicao;
+  String? get periodo => turno?.label;
+  String? get endereco => enderecoEmbarque;
+
   String get primeiroNome {
     final partes = nome.trim().split(RegExp(r'\s+'));
     return partes.isEmpty ? nome : partes.first;

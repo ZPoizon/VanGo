@@ -1,4 +1,37 @@
+import '../models/presenca.dart';
 import '../models/usuario.dart';
+
+class AlunoPresenca {
+  final Usuario aluno;
+  final StatusPresenca status;
+  final String? horarioAvisado;
+  final String? horarioEstouIndo;
+
+  const AlunoPresenca({
+    required this.aluno,
+    required this.status,
+    this.horarioAvisado,
+    this.horarioEstouIndo,
+  });
+}
+
+class ViagemHistorico {
+  final String id;
+  final String data;
+  final String tipo;
+  final String horario;
+  final int confirmados;
+  final int total;
+
+  const ViagemHistorico({
+    required this.id,
+    required this.data,
+    required this.tipo,
+    required this.horario,
+    required this.confirmados,
+    required this.total,
+  });
+}
 
 class DadosMock {
   static final Usuario usuarioAlunoLogado = Usuario(
@@ -6,12 +39,11 @@ class DadosMock {
     nome: 'Lucas Martins',
     email: 'lucas@aluno.com',
     perfil: PerfilUsuario.aluno,
-    faculdade: 'UNIP',
-    horarioEntrada: '08:00',
-    horarioSaida: '12:10',
+    status: StatusConta.ativo,
+    instituicao: 'UNIP',
     telefone: '(15) 99630-8871',
-    endereco: 'R. Floriano Peixoto, 522',
-    periodo: 'Matutino',
+    enderecoEmbarque: 'R. Floriano Peixoto, 522',
+    turno: Turno.matutino,
   );
 
   static final Usuario usuarioMotoristaLogado = Usuario(
@@ -19,6 +51,7 @@ class DadosMock {
     nome: 'Roberto Silva',
     email: 'roberto@motorista.com',
     perfil: PerfilUsuario.motorista,
+    status: StatusConta.ativo,
     telefone: '(15) 99888-7766',
   );
 
@@ -31,10 +64,9 @@ class DadosMock {
           nome: 'Henrique Almeida',
           email: 'henrique@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'Fatec',
-          horarioEntrada: '19:00',
-          horarioSaida: '22:10',
-          periodo: 'Noturno',
+          status: StatusConta.ativo,
+          instituicao: 'Fatec',
+          turno: Turno.noturno,
         ),
         status: StatusPresenca.idaEVolta,
         horarioAvisado: '06:32',
@@ -46,12 +78,11 @@ class DadosMock {
           nome: 'Ana Clara Souza',
           email: 'anaclara@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'ETEC',
-          horarioEntrada: '07:30',
-          horarioSaida: '12:00',
+          status: StatusConta.ativo,
+          instituicao: 'ETEC',
           telefone: '(15) 99774-1820',
-          endereco: 'Av. Massaichi Kakihara, 91',
-          periodo: 'Matutino',
+          enderecoEmbarque: 'Av. Massaichi Kakihara, 91',
+          turno: Turno.matutino,
         ),
         status: StatusPresenca.soIda,
       ),
@@ -61,12 +92,11 @@ class DadosMock {
           nome: 'Lucas Martins',
           email: 'lucas@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'Unip',
-          horarioEntrada: '08:00',
-          horarioSaida: '12:10',
+          status: StatusConta.ativo,
+          instituicao: 'Unip',
           telefone: '(15) 99630-8871',
-          endereco: 'R. Floriano Peixoto, 522',
-          periodo: 'Matutino',
+          enderecoEmbarque: 'R. Floriano Peixoto, 522',
+          turno: Turno.matutino,
         ),
         status: StatusPresenca.naoVai,
       ),
@@ -76,10 +106,9 @@ class DadosMock {
           nome: 'Marina Rocha',
           email: 'marina@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'Fatec',
-          horarioEntrada: '19:00',
-          horarioSaida: '22:10',
-          periodo: 'Noturno',
+          status: StatusConta.ativo,
+          instituicao: 'Fatec',
+          turno: Turno.noturno,
         ),
         status: StatusPresenca.semResposta,
       ),
@@ -89,10 +118,9 @@ class DadosMock {
           nome: 'Beatriz Moreira',
           email: 'beatriz@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'Uniesp',
-          horarioEntrada: '18:50',
-          horarioSaida: '22:10',
-          periodo: 'Noturno',
+          status: StatusConta.ativo,
+          instituicao: 'Uniesp',
+          turno: Turno.noturno,
         ),
         status: StatusPresenca.soVolta,
         horarioEstouIndo: '06:45',
@@ -103,12 +131,11 @@ class DadosMock {
           nome: 'Felipe Santos',
           email: 'felipe@email.com',
           perfil: PerfilUsuario.aluno,
-          faculdade: 'Fatec',
-          horarioEntrada: '07:40',
-          horarioSaida: '12:00',
+          status: StatusConta.ativo,
+          instituicao: 'Fatec',
           telefone: '(15) 99207-7134',
-          endereco: 'R. Nove de Julho, 332',
-          periodo: 'Matutino',
+          enderecoEmbarque: 'R. Nove de Julho, 332',
+          turno: Turno.matutino,
         ),
         status: StatusPresenca.idaEVolta,
       ),
@@ -123,61 +150,65 @@ class DadosMock {
         nome: 'Ana Clara Souza',
         email: 'anaclara@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'ETEC',
-        periodo: 'Matutino',
+        status: StatusConta.ativo,
+        instituicao: 'ETEC',
+        turno: Turno.matutino,
         telefone: '(15) 99774-1820',
-        endereco: 'Av. Massaichi Kakihara, 91',
+        enderecoEmbarque: 'Av. Massaichi Kakihara, 91',
       ),
       Usuario(
         id: 'a2',
         nome: 'Lucas Martins',
         email: 'lucas@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'Unip',
-        periodo: 'Matutino',
+        status: StatusConta.ativo,
+        instituicao: 'Unip',
+        turno: Turno.matutino,
         telefone: '(15) 99630-8871',
-        endereco: 'R. Floriano Peixoto, 522',
+        enderecoEmbarque: 'R. Floriano Peixoto, 522',
       ),
       Usuario(
         id: 'a3',
         nome: 'Felipe Santos',
         email: 'felipe@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'Fatec',
-        periodo: 'Matutino',
+        status: StatusConta.ativo,
+        instituicao: 'Fatec',
+        turno: Turno.matutino,
         telefone: '(15) 99207-7134',
-        endereco: 'R. Nove de Julho, 332',
+        enderecoEmbarque: 'R. Nove de Julho, 332',
       ),
       Usuario(
         id: 'a4',
         nome: 'Henrique Almeida',
         email: 'henrique@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'Fatec',
-        periodo: 'Noturno',
+        status: StatusConta.ativo,
+        instituicao: 'Fatec',
+        turno: Turno.noturno,
         telefone: '(15) 99111-2233',
-        endereco: 'R. das Flores, 100',
+        enderecoEmbarque: 'R. das Flores, 100',
       ),
       Usuario(
         id: 'a5',
         nome: 'Beatriz Moreira',
         email: 'beatriz@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'Uniesp',
-        periodo: 'Noturno',
+        status: StatusConta.ativo,
+        instituicao: 'Uniesp',
+        turno: Turno.noturno,
         telefone: '(15) 99444-5566',
-        endereco: 'Av. Brasil, 450',
+        enderecoEmbarque: 'Av. Brasil, 450',
       ),
       Usuario(
         id: 'a6',
         nome: 'Gabriel Lima',
         email: 'gabriel@email.com',
         perfil: PerfilUsuario.aluno,
-        faculdade: 'Fatec',
-        periodo: 'Pendentes',
-        pendente: true,
+        status: StatusConta.pendente,
+        instituicao: 'Fatec',
         telefone: '(15) 99777-8899',
-        endereco: 'R. XV de Novembro, 88',
+        enderecoEmbarque: 'R. XV de Novembro, 88',
       ),
     ];
   }
