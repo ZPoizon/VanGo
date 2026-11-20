@@ -68,10 +68,11 @@ abstract class VanGoStore extends ChangeNotifier {
 
   Future<OperacaoResultado> abrirChamada();
   Future<OperacaoResultado> encerrarChamada();
-  Future<OperacaoResultado> responderChamada({
-    required bool ida,
-    required bool volta,
-  });
+  /// Registra ou altera a resposta de presença do aluno.
+  ///
+  /// [ida] e [volta] são opcionais para permitir alteração independente:
+  /// o sentido omitido é preservado no documento.
+  Future<OperacaoResultado> responderChamada({bool? ida, bool? volta});
 
   // ---------------------------------------------------------------- viagens
 

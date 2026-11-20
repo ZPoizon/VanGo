@@ -54,10 +54,12 @@ class StudentHomeScreen extends StatelessWidget {
                 },
               ),
               const SizedBox(height: AppSpacing.lg),
-              const Center(
+              Center(
                 child: Text(
-                  'VanGo · Etapa 1 · dados em memória',
-                  style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  store.modoDemo
+                      ? 'VanGo · modo demonstração · dados em memória'
+                      : 'VanGo · conectado ao Firebase',
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted),
                 ),
               ),
             ],
@@ -310,9 +312,9 @@ class _ChamadaAmanhaCard extends StatelessWidget {
               opacity: bloqueada ? 0.55 : 1,
               child: IgnorePointer(
                 ignoring: bloqueada,
-                child: _GradeRespostas(
+                child: _SentidosResposta(
                   resposta: resposta,
-                  onResponder: (ida, volta) async {
+                  onResponder: ({bool? ida, bool? volta}) async {
                     final resultado = await store.responderChamada(
                       ida: ida,
                       volta: volta,
@@ -360,68 +362,99 @@ class _ChamadaAmanhaCard extends StatelessWidget {
   }
 }
 
-class _GradeRespostas extends StatelessWidget {
-  const _GradeRespostas({required this.resposta, required this.onResponder});
+/// Dois controles independentes: a confirmação da ida não altera a da volta.
+class _SentidosResposta extends StatelessWidget {
+  const _SentidosResposta({required this.resposta, required this.onResponder});
 
   final RespostaPresenca resposta;
-  final void Function(bool ida, bool volta) onResponder;
+  final void Function({bool? ida, bool? volta}) onResponder;
 
   @override
   Widget build(BuildContext context) {
-    final opcoes = [
-      _OpcaoResposta(
-        label: 'Só vou',
-        detalhe: 'ida',
-        icone: Icons.arrow_upward_rounded,
-        selecionado:
-            resposta.ida == RespostaSentido.vai &&
-            resposta.volta == RespostaSentido.naoVai,
-        tone: VangoTone.info,
-        onTap: () => onResponder(true, false),
-      ),
-      _OpcaoResposta(
-        label: 'Só volto',
-        detalhe: 'volta',
-        icone: Icons.arrow_downward_rounded,
-        selecionado:
-            resposta.ida == RespostaSentido.naoVai &&
-            resposta.volta == RespostaSentido.vai,
-        tone: VangoTone.purple,
-        onTap: () => onResponder(false, true),
-      ),
-      _OpcaoResposta(
-        label: 'Ida e volta',
-        detalhe: 'ida + volta',
-        icone: Icons.sync_alt_rounded,
-        selecionado:
-            resposta.ida == RespostaSentido.vai &&
-            resposta.volta == RespostaSentido.vai,
-        tone: VangoTone.success,
-        onTap: () => onResponder(true, true),
-      ),
-      _OpcaoResposta(
-        label: 'Não vou',
-        detalhe: 'ausente',
-        icone: Icons.block_rounded,
-        selecionado:
-            resposta.ida == RespostaSentido.naoVai &&
-            resposta.volta == RespostaSentido.naoVai,
-        tone: VangoTone.error,
-        onTap: () => onResponder(false, false),
-      ),
-    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _LinhaSentido(
+          titulo: 'Ida',
+          icone: Icons.arrow_upward_rounded,
+          selecao: resposta.ida,
+          onVai: () => onResponder(ida: true),
+          onNaoVai: () => onResponder(ida: false),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _LinhaSentido(
+          titulo: 'Volta',
+          icone: Icons.arrow_downward_rounded,
+          selecao: resposta.volta,
+          onVai: () => onResponder(volta: true),
+          onNaoVai: () => onResponder(volta: false),
+        ),
+      ],
+    );
+  }
+}
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final largura = (constraints.maxWidth - AppSpacing.xs) / 2;
-        return Wrap(
-          spacing: AppSpacing.xs,
-          runSpacing: AppSpacing.xs,
-          children: opcoes
-              .map((opcao) => SizedBox(width: largura, child: opcao))
-              .toList(),
-        );
-      },
+class _LinhaSentido extends StatelessWidget {
+  const _LinhaSentido({
+    required this.titulo,
+    required this.icone,
+    required this.selecao,
+    required this.onVai,
+    required this.onNaoVai,
+  });
+
+  final String titulo;
+  final IconData icone;
+  final RespostaSentido selecao;
+  final VoidCallback onVai;
+  final VoidCallback onNaoVai;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icone, size: 18, color: AppColors.primary),
+            const SizedBox(width: 6),
+            Text(
+              titulo,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: _OpcaoResposta(
+                label: 'Vou',
+                detalhe: 'confirmar $titulo'.toLowerCase(),
+                icone: Icons.check_circle_outline_rounded,
+                selecionado: selecao == RespostaSentido.vai,
+                tone: VangoTone.success,
+                onTap: onVai,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              child: _OpcaoResposta(
+                label: 'Não vou',
+                detalhe: 'confirmar $titulo'.toLowerCase(),
+                icone: Icons.cancel_outlined,
+                selecionado: selecao == RespostaSentido.naoVai,
+                tone: VangoTone.error,
+                onTap: onNaoVai,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -41,6 +41,8 @@ class Usuario {
     required this.email,
     required this.perfil,
     required this.status,
+    this.ativoFirestore,
+    this.conflitoAtivacao = false,
     this.telefone,
     this.fotoUrl,
     this.instituicao,
@@ -54,6 +56,18 @@ class Usuario {
   final String email;
   final PerfilUsuario perfil;
   final StatusConta status;
+
+  /// Valor do campo `ativo` lido diretamente do Firestore.
+  ///
+  /// Quando o documento é antigo e não possui esse campo, permanece `null` e
+  /// [ativo] continua sendo derivado de [status] para manter compatibilidade.
+  final bool? ativoFirestore;
+
+  /// `true` quando `ativo` e `status` existem mas se contradizem.
+  ///
+  /// Nesse caso o acesso é bloqueado por segurança, independentemente do valor
+  /// de [ativo].
+  final bool conflitoAtivacao;
   final String? telefone;
   final String? fotoUrl;
   final String? instituicao;
@@ -61,7 +75,13 @@ class Usuario {
   final String? enderecoEmbarque;
   final DateTime? criadoEm;
 
-  bool get ativo => status == StatusConta.ativo;
+  /// Campo oficial de ativação no Firestore, com fallback para documentos
+  /// antigos que só possuem `status`.
+  bool get ativo => ativoFirestore ?? (status == StatusConta.ativo);
+
+  /// `true` somente quando não há conflito entre `ativo` e `status`.
+  bool get podeAcessar => ativo && !conflitoAtivacao;
+
   bool get pendente => status == StatusConta.pendente;
 
   String? get faculdade => instituicao;
@@ -78,6 +98,8 @@ class Usuario {
     String? email,
     PerfilUsuario? perfil,
     StatusConta? status,
+    bool? ativoFirestore,
+    bool? conflitoAtivacao,
     String? telefone,
     String? fotoUrl,
     String? instituicao,
@@ -91,6 +113,8 @@ class Usuario {
       email: email ?? this.email,
       perfil: perfil ?? this.perfil,
       status: status ?? this.status,
+      ativoFirestore: ativoFirestore ?? this.ativoFirestore,
+      conflitoAtivacao: conflitoAtivacao ?? this.conflitoAtivacao,
       telefone: telefone ?? this.telefone,
       fotoUrl: fotoUrl ?? this.fotoUrl,
       instituicao: instituicao ?? this.instituicao,

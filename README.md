@@ -161,6 +161,36 @@ convite em **Alunos → Convidar aluno**.
 O grupo padrão é `grupo-capao-itape`
 (`lib/data/firebase/firestore_mappers.dart`).
 
+### Estrutura adotada para presença
+
+A especificação inicial citava `viagens`, `confirmacoes` e `padraoSemanal`
+como se fossem coleções. O código funcional usa uma estrutura equivalente, sem
+duplicidade:
+
+- `chamadas/{id}` — chamada do dia, com `status` `aberta`/`encerrada`;
+- `respostas/{chamadaId}_{alunoId}` — **fonte da verdade** de ida e volta. O ID
+  determinístico impede respostas duplicadas; cada sentido é gravado
+  separadamente com `set(..., merge: true)`, preservando o outro;
+- `viagens/{id}` — documento da viagem por sentido, com o campo array
+  `confirmacoes[]` como snapshot para a viagem/histórico. **Não existe**
+  coleção `confirmacoes`;
+- `padroes/{uid}` — grade semanal. `padraoSemanal` é apenas o getter/modelo Dart
+  (`PadraoSemanalDia`), não uma coleção.
+
+Nenhuma migração ou exclusão de dados foi feita. O bloqueio de alteração após o
+início da viagem é feito no servidor pela regra que exige `chamada.status ==
+'aberta'`; o motorista encerra a chamada antes de iniciar a viagem.
+
+As regras desta funcionalidade foram testadas no emulador (31/31 casos) e
+publicadas em 20/11/2026 no projeto `vango-4b4a5` (ruleset
+`02a1712e-e1e3-496f-910a-10f56a264a22`). A cópia exata revisada ficou em
+`firestore.rules.confirmacao.proposto`, e o arquivo ativo `firestore.rules`
+continua idêntico ao ruleset publicado. Nenhum índice, Cloud Function, Storage
+ou Hosting foi publicado.
+
+A listagem de `chamadas` filtra apenas por `grupoId` e ordena `dataServico`
+localmente no cliente, evitando o índice composto que ainda não foi publicado.
+
 ---
 
 ## 📱 Principais Telas

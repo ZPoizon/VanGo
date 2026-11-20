@@ -18,5 +18,31 @@
     "storage": { "port": 9199 },
     "ui": { "enabled": true, "port": 4000 },
     "singleProjectMode": true
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "vango-4b4a5",
+          "appId": "1:26899455821:android:90bcff5c37d2d8adb4e104",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "web": {
+        "default": {
+          "projectId": "vango-4b4a5",
+          "appId": "1:26899455821:web:29944c925d43ac71b4e104"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.g.dart": {
+          "projectId": "vango-4b4a5",
+          "configurations": {
+            "android": "1:26899455821:android:90bcff5c37d2d8adb4e104",
+            "web": "1:26899455821:web:29944c925d43ac71b4e104"
+          }
+        }
+      }
+    }
   }
 }

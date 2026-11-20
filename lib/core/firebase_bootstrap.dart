@@ -40,10 +40,9 @@ abstract final class FirebaseBootstrap {
     }
 
     try {
+      final opcoes = DefaultFirebaseOptions.currentPlatform;
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
+        await Firebase.initializeApp(options: opcoes);
       }
       if (!kIsWeb) {
         FirebaseMessaging.onBackgroundMessage(
@@ -51,6 +50,10 @@ abstract final class FirebaseBootstrap {
         );
       }
       await PushNotifications.instance.inicializar();
+      debugPrint(
+        '[Firebase] conectado ao projeto ${opcoes.projectId} '
+        '(${kIsWeb ? 'web' : defaultTargetPlatform.name}).',
+      );
       _disponivel = true;
       return true;
     } catch (error, stack) {

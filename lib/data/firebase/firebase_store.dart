@@ -15,11 +15,28 @@ import '../../models/usuario.dart';
 import '../../models/viagem.dart';
 import 'firestore_mappers.dart';
 
+/// Resultado interno da aplicação de uma sessão autenticada.
+enum _SessaoResultado {
+  aplicada,
+  semPerfil,
+  pendente,
+  desativado,
+  dadosInconsistentes,
+  permissoesNegadas,
+  emailNaoVerificado,
+  falha,
+}
+
 /// Store real: Firebase Auth + Cloud Firestore + Storage + FCM.
 ///
 /// A interface é reativa: listeners do Firestore mantêm o estado local
 /// sincronizado e chamam [notifyListeners] para reconstruir a UI.
 class FirebaseStore extends VanGoStore {
+  /// Verificação de e-mail DESLIGADA na Fase 1 (contas de teste sem caixa
+  /// de entrada acessível). Para habilitar, basta trocar para `true`: o fluxo
+  /// de login passa a exigir `emailVerified` antes de consultar o Firestore.
+  static const bool exigirEmailVerificado = false;
+
   FirebaseStore({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
@@ -37,6 +54,7 @@ class FirebaseStore extends VanGoStore {
       <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _respostasSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _padraoSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _perfilSub;
 
   List<Usuario> _usuarios = <Usuario>[];
   final Map<String, RespostaPresenca> _respostas = <String, RespostaPresenca>{};
@@ -54,6 +72,7 @@ class FirebaseStore extends VanGoStore {
   bool _pronto = false;
   bool _ignorarAuth = false;
   bool _descartado = false;
+  Future<_SessaoResultado>? _sessaoEmAndamento;
 
   @override
   bool get modoDemo => false;
@@ -111,37 +130,41 @@ class FirebaseStore extends VanGoStore {
     required String email,
     required String senha,
   }) async {
+    // Resultado de uma tentativa anterior não pode vazar para a nova: sem
+    // isso, `invalid-credential` aparecia na UI como erro de internet.
+    _erro = null;
     try {
+      // As credenciais são enviadas exatamente como digitadas. O validador do
+      // formulário já garante o formato do e-mail; a senha nunca é alterada.
       final credencial = await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
+        email: email,
         password: senha,
       );
       final user = credencial.user;
       if (user == null) return LoginResultado.credenciaisInvalidas;
 
-      final doc = await _db.collection('usuarios').doc(user.uid).get();
-      if (!doc.exists) {
-        await _auth.signOut();
-        return LoginResultado.semPerfil;
+      // Nenhuma leitura protegida do Firestore antes de confirmar que o
+      // próprio Firebase Auth concluiu a autenticação.
+      final autenticado = _auth.currentUser;
+      if (autenticado == null || autenticado.uid != user.uid) {
+        return LoginResultado.credenciaisInvalidas;
       }
 
-      final perfil = usuarioFromDoc(doc);
-      if (perfil.status == StatusConta.pendente) {
-        await _auth.signOut();
-        return LoginResultado.pendente;
-      }
-      if (!perfil.ativo) {
-        await _auth.signOut();
-        return LoginResultado.desativado;
-      }
-
-      await _aplicarSessao(user);
-      return LoginResultado.sucesso;
+      final resultado = await _aplicarSessao(user);
+      return _comoLoginResultado(resultado);
     } on FirebaseAuthException catch (error) {
       debugPrint('[Auth] ${error.code}: ${error.message}');
+      _erro = null;
       return _mapearErroAuth(error);
+    } on FirebaseException catch (error) {
+      debugPrint('[Firestore] ${error.code}: ${error.message}');
+      _erro = '${error.code}: ${error.message}';
+      return _ehPermissionDenied(error)
+          ? LoginResultado.permissoesNegadas
+          : LoginResultado.offline;
     } catch (error) {
       debugPrint('[Auth] falha no login: $error');
+      _erro = null;
       return LoginResultado.offline;
     }
   }
@@ -182,45 +205,159 @@ class FirebaseStore extends VanGoStore {
     }
   }
 
-  Future<void> _aplicarSessao(User? user) async {
-    if (user == null) {
-      await _limparSessao();
-      return;
+  /// Serializa a aplicação da sessão: o listener de auth e o login podem
+  /// disparar ao mesmo tempo e não podem competir pelas mesmas assinaturas.
+  Future<_SessaoResultado> _aplicarSessao(User? user) {
+    final anterior = _sessaoEmAndamento;
+    if (anterior != null) {
+      return anterior.then(
+        (_) => _aplicarSessao(user),
+        onError: (_) => _aplicarSessao(user),
+      );
     }
 
-    if (_uid == user.uid && _subs.isNotEmpty) return;
+    final futuro = _aplicarSessaoInterno(user).whenComplete(() {
+      _sessaoEmAndamento = null;
+    });
+    _sessaoEmAndamento = futuro;
+    return futuro;
+  }
+
+  Future<_SessaoResultado> _aplicarSessaoInterno(User? user) async {
+    if (user == null) {
+      await _limparSessao();
+      return _SessaoResultado.falha;
+    }
+
+    if (_uid == user.uid && _subs.isNotEmpty && _usuarioAtual != null) {
+      return _SessaoResultado.aplicada;
+    }
+
+    // Guarda explícita antes de qualquer leitura protegida.
+    final autenticado = _auth.currentUser;
+    if (autenticado == null || autenticado.uid != user.uid) {
+      await _limparSessao();
+      return _SessaoResultado.falha;
+    }
+
+    if (exigirEmailVerificado) {
+      await user.reload();
+      if (!user.emailVerified) {
+        _erro = 'Confirme seu e-mail antes de entrar.';
+        await _limparSessao();
+        await _auth.signOut();
+        return _SessaoResultado.emailNaoVerificado;
+      }
+    }
+
     _uid = user.uid;
 
     try {
+      // Consulta exata do perfil autenticado.
+      debugPrint('[Firestore] lendo usuarios/${user.uid}');
       final doc = await _db.collection('usuarios').doc(user.uid).get();
       if (!doc.exists) {
         _erro = 'Perfil não encontrado. Use o convite do motorista.';
+        await _limparSessao();
         await _auth.signOut();
-        return;
+        return _SessaoResultado.semPerfil;
+      }
+
+      // Perfil ausente ou desconhecido não pode cair no padrão "aluno".
+      final perfilValido = enumDeOuNulo(
+        PerfilUsuario.values,
+        doc.data()?['perfil'],
+      );
+      if (perfilValido == null) {
+        _erro = 'Perfil inválido ou ausente em usuarios/${user.uid}.';
+        await _limparSessao();
+        await _auth.signOut();
+        return _SessaoResultado.dadosInconsistentes;
       }
 
       final perfil = usuarioFromDoc(doc);
-      if (!perfil.ativo) {
-        _erro = perfil.status == StatusConta.pendente
-            ? 'Sua solicitação ainda está pendente de aprovação.'
-            : 'Esta conta está desativada.';
+      debugPrint(
+        '[Firestore] usuarios/${user.uid}: perfil=${perfilValido.name}, '
+        'ativo=${perfil.ativo}, conflito=${perfil.conflitoAtivacao}',
+      );
+      if (perfil.conflitoAtivacao) {
+        _erro =
+            'Os campos "ativo" e "status" do seu perfil são contraditórios. '
+            'Procure o motorista do grupo para regularizar.';
+        await _limparSessao();
         await _auth.signOut();
-        return;
+        return _SessaoResultado.dadosInconsistentes;
+      }
+      if (perfil.status == StatusConta.pendente) {
+        _erro = 'Sua solicitação ainda está pendente de aprovação.';
+        await _limparSessao();
+        await _auth.signOut();
+        return _SessaoResultado.pendente;
+      }
+      if (!perfil.ativo) {
+        _erro = 'Esta conta está desativada. Procure o motorista do grupo.';
+        await _limparSessao();
+        await _auth.signOut();
+        return _SessaoResultado.desativado;
       }
 
       _usuarioAtual = perfil;
       _grupoId = (doc.data()?['grupoId'] as String?) ?? kGrupoIdPadrao;
       await _assinarDados();
-      await PushNotifications.instance.registrarDispositivo(
-        uid: user.uid,
-        grupoId: _grupoId,
-      );
+      try {
+        await PushNotifications.instance.registrarDispositivo(
+          uid: user.uid,
+          grupoId: _grupoId,
+        );
+      } catch (error) {
+        // Notificação é complementar: uma falha no FCM/token não pode impedir
+        // o login nem a leitura dos dados do Firestore.
+        debugPrint('[FCM] falha ao registrar dispositivo: $error');
+      }
       _erro = null;
       _notificar();
-    } catch (error) {
-      debugPrint('[Firestore] falha ao carregar sessão: $error');
+      return _SessaoResultado.aplicada;
+    } on FirebaseException catch (error) {
+      debugPrint(
+        '[Firestore] falha ao carregar sessão: ${error.code}: ${error.message}',
+      );
+      await _limparSessao();
+      if (_ehPermissionDenied(error)) {
+        // Mensagem técnica fica no diagnóstico; a UI usa uma mensagem própria.
+        _erro = '${error.code}: ${error.message}';
+        _notificar();
+        return _SessaoResultado.permissoesNegadas;
+      }
       _erro = 'Não foi possível carregar os dados. Verifique sua conexão.';
       _notificar();
+      return _SessaoResultado.falha;
+    } catch (error) {
+      debugPrint('[Firestore] falha ao carregar sessão: $error');
+      await _limparSessao();
+      _erro = 'Não foi possível carregar os dados. Verifique sua conexão.';
+      _notificar();
+      return _SessaoResultado.falha;
+    }
+  }
+
+  LoginResultado _comoLoginResultado(_SessaoResultado resultado) {
+    switch (resultado) {
+      case _SessaoResultado.aplicada:
+        return LoginResultado.sucesso;
+      case _SessaoResultado.semPerfil:
+        return LoginResultado.semPerfil;
+      case _SessaoResultado.pendente:
+        return LoginResultado.pendente;
+      case _SessaoResultado.desativado:
+        return LoginResultado.desativado;
+      case _SessaoResultado.dadosInconsistentes:
+        return LoginResultado.dadosInconsistentes;
+      case _SessaoResultado.permissoesNegadas:
+        return LoginResultado.permissoesNegadas;
+      case _SessaoResultado.emailNaoVerificado:
+        return LoginResultado.emailNaoVerificado;
+      case _SessaoResultado.falha:
+        return LoginResultado.offline;
     }
   }
 
@@ -255,28 +392,68 @@ class FirebaseStore extends VanGoStore {
     }
   }
 
+  /// Reconhece o erro de regras do Firestore tanto pelo código do plugin
+  /// (`cloud_firestore/permission-denied`) quanto pela mensagem do servidor.
+  bool _ehPermissionDenied(Object error) {
+    final texto = error.toString().toLowerCase();
+    return texto.contains('permission-denied') ||
+        texto.contains('insufficient permissions');
+  }
+
   // --------------------------------------------------------------- listeners
 
   Future<void> _assinarDados() async {
     await _cancelarAssinaturas();
+    // Guarda explícita: listener nenhum é criado sem sessão confirmada.
+    final uidAutenticado = _auth.currentUser?.uid;
+    if (_uid == null || uidAutenticado == null || uidAutenticado != _uid) {
+      return;
+    }
     final grupo = _grupoAtual;
 
-    _subs.add(
-      _db
+    if (_usuarioAtual?.perfil == PerfilUsuario.motorista) {
+      // Somente o motorista precisa listar os alunos do grupo. Documentos já
+      // existentes podem não ter `grupoId` e são tratados como grupo padrão.
+      _subs.add(
+        _db.collection('usuarios').snapshots().listen((snapshot) {
+          final doGrupo = snapshot.docs.where((doc) {
+            final grupoDoc = doc.data()['grupoId'] as String?;
+            return grupoDoc == null || grupoDoc == grupo;
+          }).toList();
+          _aoAtualizarUsuarios(doGrupo);
+        }, onError: (Object e) => _aoFalharStream(e, 'usuarios:list')),
+      );
+    } else {
+      // Aluno lê apenas o próprio documento. Listagens de usuários são
+      // operação administrativa e ficam restritas ao motorista nas regras.
+      _perfilSub = _db
           .collection('usuarios')
-          .where('grupoId', isEqualTo: grupo)
+          .doc(uidAutenticado)
           .snapshots()
-          .listen(_aoAtualizarUsuarios, onError: _aoFalharStream),
-    );
+          .listen((doc) {
+        if (!doc.exists) {
+          unawaited(_auth.signOut());
+          return;
+        }
+        final atualizado = usuarioFromDoc(doc);
+        if (!atualizado.podeAcessar) {
+          unawaited(_auth.signOut());
+          return;
+        }
+        _usuarioAtual = atualizado;
+        _notificar();
+      }, onError: (Object e) => _aoFalharStream(e, 'usuarios:get(uid)'));
+    }
 
     _subs.add(
       _db
           .collection('chamadas')
           .where('grupoId', isEqualTo: grupo)
-          .orderBy('dataServico', descending: true)
-          .limit(1)
           .snapshots()
-          .listen(_aoAtualizarChamada, onError: _aoFalharStream),
+          .listen(
+            _aoAtualizarChamada,
+            onError: (Object e) => _aoFalharStream(e, 'chamadas:list'),
+          ),
     );
 
     _subs.add(
@@ -286,7 +463,10 @@ class FirebaseStore extends VanGoStore {
           .orderBy('dataViagem', descending: true)
           .limit(30)
           .snapshots()
-          .listen(_aoAtualizarViagens, onError: _aoFalharStream),
+          .listen(
+            _aoAtualizarViagens,
+            onError: (Object e) => _aoFalharStream(e, 'viagens:list'),
+          ),
     );
 
     if (_usuarioAtual?.perfil == PerfilUsuario.aluno) {
@@ -294,14 +474,16 @@ class FirebaseStore extends VanGoStore {
     }
   }
 
-  void _aoAtualizarUsuarios(QuerySnapshot<Map<String, dynamic>> snapshot) {
-    _usuarios = snapshot.docs.map(usuarioFromDoc).toList();
+  void _aoAtualizarUsuarios(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> documentos,
+  ) {
+    _usuarios = documentos.map(usuarioFromDoc).toList();
     final atual = _usuarioAtual;
     if (atual != null) {
       for (final usuario in _usuarios) {
         if (usuario.id == atual.id) {
           _usuarioAtual = usuario;
-          if (!usuario.ativo) unawaited(_auth.signOut());
+          if (!usuario.podeAcessar) unawaited(_auth.signOut());
           break;
         }
       }
@@ -311,9 +493,9 @@ class FirebaseStore extends VanGoStore {
 
   void _aoAtualizarChamada(QuerySnapshot<Map<String, dynamic>> snapshot) {
     final anterior = _chamada?.id;
-    _chamada = snapshot.docs.isEmpty
-        ? null
-        : chamadaFromDoc(snapshot.docs.first);
+    final chamadas = snapshot.docs.map(chamadaFromDoc).toList()
+      ..sort((a, b) => b.dataServico.compareTo(a.dataServico));
+    _chamada = chamadas.isEmpty ? null : chamadas.first;
     if (_chamada?.id != anterior) _assinarRespostas();
     _notificar();
   }
@@ -343,9 +525,18 @@ class FirebaseStore extends VanGoStore {
       return;
     }
 
-    _respostasSub = _db
+    Query<Map<String, dynamic>> consulta = _db
         .collection('respostas')
-        .where('chamadaId', isEqualTo: chamada.id)
+        .where('chamadaId', isEqualTo: chamada.id);
+
+    // O aluno só tem permissão para ler a própria resposta. Filtrar também por
+    // alunoId mantém a consulta compatível com as regras de segurança; o
+    // motorista continua vendo todas as respostas da chamada.
+    if (_usuarioAtual?.perfil == PerfilUsuario.aluno) {
+      consulta = consulta.where('alunoId', isEqualTo: _uid);
+    }
+
+    _respostasSub = consulta
         .snapshots()
         .listen((snapshot) {
           _respostas
@@ -357,7 +548,7 @@ class FirebaseStore extends VanGoStore {
               }),
             );
           _notificar();
-        }, onError: _aoFalharStream);
+        }, onError: (Object e) => _aoFalharStream(e, 'respostas:list'));
   }
 
   void _assinarPadrao(String uid) {
@@ -365,12 +556,14 @@ class FirebaseStore extends VanGoStore {
     _padraoSub = _db.collection('padroes').doc(uid).snapshots().listen((doc) {
       _padrao = padraoFromDoc(doc);
       _notificar();
-    }, onError: _aoFalharStream);
+    }, onError: (Object e) => _aoFalharStream(e, 'padroes:get(uid)'));
   }
 
-  void _aoFalharStream(Object error) {
-    debugPrint('[Firestore] erro em listener: $error');
-    _erro = 'Falha de sincronização. Verifique sua conexão.';
+  void _aoFalharStream(Object error, String origem) {
+    debugPrint('[Firestore] erro em listener ($origem): $error');
+    _erro = _ehPermissionDenied(error)
+        ? 'Permissão negada ao sincronizar os dados do grupo.'
+        : 'Falha de sincronização. Verifique sua conexão.';
     _notificar();
   }
 
@@ -383,6 +576,8 @@ class FirebaseStore extends VanGoStore {
     _respostasSub = null;
     await _padraoSub?.cancel();
     _padraoSub = null;
+    await _perfilSub?.cancel();
+    _perfilSub = null;
   }
 
   void _notificar() {
@@ -397,7 +592,7 @@ class FirebaseStore extends VanGoStore {
         .where(
           (usuario) =>
               usuario.perfil == PerfilUsuario.aluno &&
-              usuario.status == StatusConta.ativo,
+              usuario.podeAcessar,
         )
         .toList();
     lista.sort((a, b) => _normalizar(a.nome).compareTo(_normalizar(b.nome)));
@@ -410,6 +605,7 @@ class FirebaseStore extends VanGoStore {
         .where(
           (usuario) =>
               usuario.perfil == PerfilUsuario.aluno &&
+              !usuario.podeAcessar &&
               usuario.status == StatusConta.pendente,
         )
         .toList();
@@ -424,7 +620,7 @@ class FirebaseStore extends VanGoStore {
         .where(
           (usuario) =>
               usuario.perfil == PerfilUsuario.aluno &&
-              usuario.status == StatusConta.ativo &&
+              usuario.podeAcessar &&
               usuario.turno == turno &&
               (termo.isEmpty ||
                   _normalizar(usuario.nome).contains(termo) ||
@@ -479,6 +675,8 @@ class FirebaseStore extends VanGoStore {
     try {
       await _db.collection('usuarios').doc(id).set(<String, dynamic>{
         'status': status.name,
+        // Mantém o campo oficial sincronizado para não gerar contradição.
+        'ativo': status == StatusConta.ativo,
         'atualizadoEm': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       switch (status) {
@@ -605,37 +803,61 @@ class FirebaseStore extends VanGoStore {
   }
 
   @override
-  Future<OperacaoResultado> responderChamada({
-    required bool ida,
-    required bool volta,
-  }) async {
+  Future<OperacaoResultado> responderChamada({bool? ida, bool? volta}) async {
     final usuario = _usuarioAtual;
     if (usuario == null || usuario.perfil != PerfilUsuario.aluno) {
       return const OperacaoResultado.erro('Entre como aluno para responder.');
+    }
+    if (ida == null && volta == null) {
+      return const OperacaoResultado.erro(
+        'Selecione ida ou volta para responder.',
+      );
     }
     final chamada = _chamada;
     if (chamada == null) {
       return const OperacaoResultado.erro('Nenhuma chamada aberta.');
     }
-    if (!chamada.aberta) {
+    // O motorista encerra a chamada antes de iniciar a viagem, logo
+    // `chamada.aberta` é o bloqueio do servidor; `respostaBloqueada` cobre
+    // também uma viagem em andamento na interface.
+    if (!chamada.aberta || respostaBloqueada) {
       return const OperacaoResultado.erro(
-        'A chamada já foi encerrada. Não é mais possível alterar a resposta.',
+        'A chamada foi encerrada ou a viagem já começou. '
+        'Não é mais possível alterar a resposta.',
       );
     }
 
-    try {
-      await _respostaRef(chamada.id, usuario.id).set(<String, dynamic>{
-        'chamadaId': chamada.id,
-        'alunoId': usuario.id,
-        'grupoId': _grupoAtual,
-        'ida': ida ? RespostaSentido.vai.name : RespostaSentido.naoVai.name,
-        'volta': volta ? RespostaSentido.vai.name : RespostaSentido.naoVai.name,
-        'respondidoEm': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    // Grava somente os sentidos informados. Com `merge`, o sentido omitido é
+    // preservado no Firestore: não há documento duplicado nem valor conflitante.
+    final dados = <String, dynamic>{
+      'chamadaId': chamada.id,
+      'alunoId': usuario.id,
+      'grupoId': _grupoAtual,
+      'respondidoEm': FieldValue.serverTimestamp(),
+    };
+    if (ida != null) {
+      dados['ida'] = ida
+          ? RespostaSentido.vai.name
+          : RespostaSentido.naoVai.name;
+    }
+    if (volta != null) {
+      dados['volta'] = volta
+          ? RespostaSentido.vai.name
+          : RespostaSentido.naoVai.name;
+    }
 
-      _respostas[usuario.id] = respostaDe(usuario.id).copyWith(
-        ida: ida ? RespostaSentido.vai : RespostaSentido.naoVai,
-        volta: volta ? RespostaSentido.vai : RespostaSentido.naoVai,
+    try {
+      await _respostaRef(chamada.id, usuario.id)
+          .set(dados, SetOptions(merge: true));
+
+      final anterior = respostaDe(usuario.id);
+      _respostas[usuario.id] = anterior.copyWith(
+        ida: ida == null
+            ? null
+            : (ida ? RespostaSentido.vai : RespostaSentido.naoVai),
+        volta: volta == null
+            ? null
+            : (volta ? RespostaSentido.vai : RespostaSentido.naoVai),
         respondidoEm: DateTime.now(),
       );
       _notificar();

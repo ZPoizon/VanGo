@@ -23,18 +23,100 @@ DateTime? _data(Object? valor) {
 Timestamp? _timestamp(DateTime? valor) =>
     valor == null ? null : Timestamp.fromDate(valor);
 
+/// Converte strings do Firestore em enum.
+///
+/// Os documentos reais do projeto usam `MOTORISTA`/`ALUNO` (maiúsculas),
+/// enquanto o código usa `motorista`/`aluno`. A comparação é tolerante a caixa
+/// e a espaços para não transformar o motorista em aluno.
 T enumDe<T extends Enum>(List<T> valores, Object? nome, T padrao) {
-  if (nome is! String) return padrao;
+  return enumDeOuNulo(valores, nome) ?? padrao;
+}
+
+/// Versão estrita de [enumDe]: retorna `null` quando o valor não corresponde
+/// a nenhum enum. Usada no login para recusar perfis ausentes ou desconhecidos
+/// em vez de assumir silenciosamente o perfil padrão.
+T? enumDeOuNulo<T extends Enum>(List<T> valores, Object? nome) {
+  if (nome is! String) return null;
+  final normalizado = nome.trim().toLowerCase();
   for (final valor in valores) {
-    if (valor.name == nome) return valor;
+    if (valor.name.toLowerCase() == normalizado) return valor;
   }
-  return padrao;
+  return null;
 }
 
 // ------------------------------------------------------------------- usuário
 
+/// Resultado da resolução dos campos de ativação de um documento.
+class SituacaoAtivacao {
+  const SituacaoAtivacao({
+    required this.ativo,
+    required this.status,
+    required this.conflito,
+  });
+
+  /// Valor efetivo de `ativo` (já bloqueado quando há conflito).
+  final bool ativo;
+  final StatusConta status;
+
+  /// `true` quando `ativo` e `status` estão presentes e se contradizem, ou
+  /// quando o campo `ativo` existe com tipo inválido.
+  final bool conflito;
+
+  bool get podeAcessar => ativo && !conflito;
+}
+
+/// Resolve `ativo` e `status` de forma determinística.
+///
+/// * `ativo` bool é o campo oficial;
+/// * documentos sem `ativo` continuam usando apenas `status`;
+/// * valores contraditórios ou com tipo inválido bloqueiam o acesso.
+SituacaoAtivacao situacaoAtivacaoDe(Map<String, dynamic> dados) {
+  final statusBruto = dados['status'];
+  final statusNormalizado =
+      statusBruto is String ? statusBruto.trim().toLowerCase() : null;
+  final statusValido = statusNormalizado != null &&
+      StatusConta.values.any((valor) => valor.name == statusNormalizado);
+  var status = enumDe(StatusConta.values, statusBruto, StatusConta.pendente);
+  final ativoBruto = dados['ativo'];
+
+  if (ativoBruto == null) {
+    return SituacaoAtivacao(
+      ativo: status == StatusConta.ativo,
+      status: status,
+      conflito: false,
+    );
+  }
+
+  if (ativoBruto is! bool) {
+    // Falha fechada: tipo inesperado não pode habilitar acesso.
+    return SituacaoAtivacao(
+      ativo: false,
+      status: status,
+      conflito: true,
+    );
+  }
+
+  if (!statusValido) {
+    // Documento sem `status` reconhecido: o booleano passa a ser a fonte.
+    status = ativoBruto ? StatusConta.ativo : StatusConta.desativado;
+    return SituacaoAtivacao(
+      ativo: ativoBruto,
+      status: status,
+      conflito: false,
+    );
+  }
+
+  final conflito = (status == StatusConta.ativo) != ativoBruto;
+  return SituacaoAtivacao(
+    ativo: conflito ? false : ativoBruto,
+    status: status,
+    conflito: conflito,
+  );
+}
+
 Usuario usuarioFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? const <String, dynamic>{};
+  final situacao = situacaoAtivacaoDe(data);
   return Usuario(
     id: doc.id,
     nome: (data['nome'] as String?)?.trim().isNotEmpty == true
@@ -42,7 +124,10 @@ Usuario usuarioFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         : 'Sem nome',
     email: (data['email'] as String?) ?? '',
     perfil: enumDe(PerfilUsuario.values, data['perfil'], PerfilUsuario.aluno),
-    status: enumDe(StatusConta.values, data['status'], StatusConta.pendente),
+    status: situacao.status,
+    ativoFirestore:
+        data.containsKey('ativo') ? situacao.ativo : null,
+    conflitoAtivacao: situacao.conflito,
     telefone: data['telefone'] as String?,
     fotoUrl: data['fotoUrl'] as String?,
     instituicao: data['instituicao'] as String?,
@@ -60,6 +145,8 @@ Map<String, dynamic> usuarioToMap(Usuario usuario, {required String grupoId}) {
     'email': usuario.email.toLowerCase(),
     'perfil': usuario.perfil.name,
     'status': usuario.status.name,
+    // Campo oficial. Mantido em sincronia com `status` para não criar conflito.
+    'ativo': usuario.ativo,
     'telefone': usuario.telefone,
     'fotoUrl': usuario.fotoUrl,
     'instituicao': usuario.instituicao,

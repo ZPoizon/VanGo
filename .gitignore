@@ -56,5 +56,7 @@ ios/Runner/GoogleService-Info.plist
 ios/firebase_app_id_file.json
 .firebase/
 functions/node_modules/
+tool/rules_test/node_modules/
+tool/rules_test/firestore.rules
 functions/.env
 functions/*.local

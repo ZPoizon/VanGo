@@ -2,18 +2,20 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
+import 'firebase_options.g.dart' as gerado;
+
 /// Configuração do Firebase por plataforma.
 ///
 /// Há duas formas de configurar:
 ///
-/// 1. **Recomendado:** rodar `flutterfire configure` no projeto. O comando
-///    sobrescreve este arquivo com os valores reais do seu projeto.
-/// 2. **Sem CLI:** informar os valores em tempo de compilação com
+/// 1. **Atual:** valores reais gerados pelo FlutterFire em
+///    `firebase_options.g.dart` (projeto VanGo `vango-4b4a5`).
+/// 2. **Alternativa:** informar os valores em tempo de compilação com
 ///    `--dart-define-from-file=firebase.local.json` (use
-///    `firebase.local.example.json` como base).
+///    `firebase.local.example.json` como base). Esses valores têm prioridade.
 ///
-/// Enquanto os valores estiverem vazios, o app inicia em **modo demonstração**
-/// (dados em memória), sem quebrar o build.
+/// Se nenhuma das duas estiver disponível para a plataforma atual, o app
+/// continua iniciando em **modo demonstração** (dados em memória).
 class DefaultFirebaseOptions {
   const DefaultFirebaseOptions._();
 
@@ -66,19 +68,28 @@ class DefaultFirebaseOptions {
     return '$_projectId.firebasestorage.app';
   }
 
-  /// `true` quando há configuração suficiente para inicializar o Firebase.
-  static bool get isConfigured =>
+  static bool get _configuradoPorEnv =>
       _apiKey.isNotEmpty &&
       _projectId.isNotEmpty &&
       _messagingSenderId.isNotEmpty &&
       _appIdAtual.isNotEmpty;
 
+  /// `true` quando há configuração suficiente para inicializar o Firebase.
+  static bool get isConfigured {
+    if (_configuradoPorEnv) return true;
+    try {
+      final opcoes = gerado.DefaultFirebaseOptions.currentPlatform;
+      return opcoes.apiKey.isNotEmpty &&
+          opcoes.appId.isNotEmpty &&
+          opcoes.projectId.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static FirebaseOptions get currentPlatform {
-    if (!isConfigured) {
-      throw StateError(
-        'Firebase não configurado. Rode "flutterfire configure" ou informe '
-        'os valores via --dart-define-from-file=firebase.local.json.',
-      );
+    if (!_configuradoPorEnv) {
+      return gerado.DefaultFirebaseOptions.currentPlatform;
     }
 
     if (kIsWeb) {

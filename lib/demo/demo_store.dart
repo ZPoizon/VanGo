@@ -312,27 +312,33 @@ class DemoStore extends VanGoStore {
   }
 
   @override
-  Future<OperacaoResultado> responderChamada({
-    required bool ida,
-    required bool volta,
-  }) async {
+  Future<OperacaoResultado> responderChamada({bool? ida, bool? volta}) async {
     final usuario = _usuarioAtual;
     if (usuario == null || usuario.perfil != PerfilUsuario.aluno) {
       return const OperacaoResultado.erro('Entre como aluno para responder.');
+    }
+    if (ida == null && volta == null) {
+      return const OperacaoResultado.erro(
+        'Selecione ida ou volta para responder.',
+      );
     }
     final chamada = _chamada;
     if (chamada == null) {
       return const OperacaoResultado.erro('Nenhuma chamada aberta.');
     }
-    if (!chamada.aberta) {
+    if (!chamada.aberta || respostaBloqueada) {
       return const OperacaoResultado.erro(
-        'A chamada já foi encerrada. Não é mais possível alterar a resposta.',
+        'A chamada foi encerrada ou a viagem já começou. '
+        'Não é mais possível alterar a resposta.',
       );
     }
-    final atual = respostaDe(usuario.id);
-    _respostas[usuario.id] = atual.copyWith(
-      ida: ida ? RespostaSentido.vai : RespostaSentido.naoVai,
-      volta: volta ? RespostaSentido.vai : RespostaSentido.naoVai,
+    _respostas[usuario.id] = respostaDe(usuario.id).copyWith(
+      ida: ida == null
+          ? null
+          : (ida ? RespostaSentido.vai : RespostaSentido.naoVai),
+      volta: volta == null
+          ? null
+          : (volta ? RespostaSentido.vai : RespostaSentido.naoVai),
       respondidoEm: DateTime.now(),
     );
     notifyListeners();

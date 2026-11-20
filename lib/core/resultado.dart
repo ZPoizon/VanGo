@@ -12,7 +12,10 @@ enum LoginResultado {
   pendente,
   desativado,
   offline,
-  semPerfil;
+  semPerfil,
+  dadosInconsistentes,
+  permissoesNegadas,
+  emailNaoVerificado;
 
   String get mensagem {
     switch (this) {
@@ -28,6 +31,13 @@ enum LoginResultado {
         return 'Sem conexão. Verifique sua internet e tente novamente.';
       case LoginResultado.semPerfil:
         return 'Conta sem perfil vinculado. Use o convite do motorista.';
+      case LoginResultado.dadosInconsistentes:
+        return 'Dados de ativação inconsistentes. Procure o motorista do grupo.';
+      case LoginResultado.permissoesNegadas:
+        return 'Seu perfil não tem permissão para ler estes dados. '
+            'Procure o motorista do grupo.';
+      case LoginResultado.emailNaoVerificado:
+        return 'Confirme seu e-mail antes de entrar.';
     }
   }
 }

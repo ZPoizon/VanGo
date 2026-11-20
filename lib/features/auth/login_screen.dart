@@ -44,15 +44,31 @@ class _LoginScreenState extends State<LoginScreen> {
       _erro = null;
     });
 
-    final resultado = await StoreScope.read(context)
-        .entrar(email: _email.text, senha: _senha.text);
+    final store = StoreScope.read(context);
+    final resultado = await store.entrar(
+      email: _email.text,
+      senha: _senha.text,
+    );
 
     if (!mounted) return;
     setState(() {
       _carregando = false;
-      if (resultado != LoginResultado.sucesso) {
-        _erro = resultado.mensagem;
+      if (resultado == LoginResultado.sucesso) {
+        _erro = null;
+        return;
       }
+
+      // Mensagens de credencial, permissão, ativação e perfil já são
+      // conclusivas. Anexar `store.erro` aqui fazia um erro antigo de rede
+      // aparecer como se fosse a causa de um `invalid-credential`.
+      final detalhe = store.erro;
+      final mostrarDetalhe = resultado == LoginResultado.offline &&
+          detalhe != null &&
+          detalhe.isNotEmpty &&
+          detalhe != resultado.mensagem;
+      _erro = mostrarDetalhe
+          ? '${resultado.mensagem}\n$detalhe'
+          : resultado.mensagem;
     });
 
     // Em caso de sucesso, o redirect do GoRouter leva ao home do perfil.

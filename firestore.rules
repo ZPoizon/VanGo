@@ -1,21 +1,33 @@
 rules_version = '2';
 
-// Regras do Firestore do VanGo.
+// =============================================================================
+// PROPOSTA LOCAL — NÃO PUBLICA DA.
+// =============================================================================
+// Funcionalidade: confirmação de ida e volta pelo aluno.
+// Projeto: vango-4b4a5
 //
-// Modelo:
-//   usuarios/{uid}                     perfil, status, grupoId
-//   usuarios/{uid}/tokens/{token}      tokens FCM do dispositivo
-//   chamadas/{id}                      chamada aberta/encerrada do dia
-//   respostas/{chamadaId}_{alunoId}    resposta de presença do aluno
-//   viagens/{id}                       viagem em andamento/histórico
-//   padroes/{uid}                      padrão semanal do aluno
-//   convites/{token}                   convite de cadastro do motorista
-//   notificacoes/{id}                  fila de push (lida pela Cloud Function)
-//   grupos/{id}                        metadados do grupo
+// Este arquivo NÃO substitui `firestore.rules`. O arquivo ativo continua
+// idêntico ao ruleset publicado (80877a3a-f11e-427b-8207-8c9628ca888b), que
+// permite somente `get` em usuarios/{uid}.
 //
-// O app filtra as consultas por `grupoId`; as regras garantem que somente
-// usuários autenticados leem os dados do grupo. As escritas são restritas ao
-// motorista do grupo ou ao próprio aluno.
+// Publicar somente após aprovação explícita. Ao publicar, copiar este conteúdo
+// para `firestore.rules` e executar o deploy das regras (sem Shell/índices).
+//
+// Estrutura adotada (baseada no código funcional):
+//   usuarios/{uid}                     perfil, ativo, status, grupoId
+//   chamadas/{id}                      chamada do dia (status: aberta/encerrada)
+//   respostas/{chamadaId}_{alunoId}    FONTE DA VERDADE de ida/volta
+//   viagens/{id}                       snapshot por sentido (confirmacoes[])
+//   padroes/{uid}                      padrão semanal (próxima funcionalidade)
+//
+// Regras de negócio aplicadas aqui:
+//   * aluno lê/escreve somente a própria resposta;
+//   * gravação só enquanto a chamada estiver aberta (o motorista encerra a
+//     chamada antes de iniciar a viagem, o que bloqueia alterações posteriores);
+//   * perfil e ativação são lidos do próprio documento de usuário;
+//   * `status` contradizendo `ativo` bloqueia o acesso;
+//   * nenhuma permissão pública; demais coleções continuam negadas.
+// =============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -24,143 +36,147 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function perfilAtual() {
+    /// Dados do próprio usuário. `get()` em regras não depende da regra de
+    /// leitura do documento; a regra de acesso ao perfil permanece restrita.
+    function dadosDoPerfil() {
       return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
     }
 
-    function ehMotorista() {
-      return autenticado() && perfilAtual().perfil == 'motorista';
+    function perfilEh(nome) {
+      return autenticado()
+        && dadosDoPerfil().get('perfil', '').lower() == nome;
+    }
+
+    /// Perfil efetivo: exige `ativo == true` e, se `status` existir, exige que
+    /// seja `ativo`. Espelha `situacaoAtivacaoDe()` do aplicativo.
+    function perfilAtivoEh(nome) {
+      return perfilEh(nome)
+        && dadosDoPerfil().get('ativo', false) == true
+        && (
+          !dadosDoPerfil().keys().hasAny(['status'])
+          || dadosDoPerfil().get('status', '').lower() == 'ativo'
+        );
+    }
+
+    function ehAlunoAtivo() {
+      return perfilAtivoEh('aluno');
+    }
+
+    function ehMotoristaAtivo() {
+      return perfilAtivoEh('motorista');
+    }
+
+    function grupoPadrao() {
+      return 'grupo-capao-itape';
     }
 
     function meuGrupo() {
-      return perfilAtual().grupoId;
+      return dadosDoPerfil().get('grupoId', grupoPadrao());
     }
 
     function grupoDoDado(dados) {
-      return dados.grupoId;
+      return dados.get('grupoId', grupoPadrao());
     }
 
-    // ------------------------------------------------------------- grupos
-    match /grupos/{grupoId} {
-      allow read: if autenticado();
-      // Somente o motorista do próprio grupo pode editar os metadados.
-      allow write: if ehMotorista() && grupoId == meuGrupo();
+    function mesmoGrupo(dados) {
+      return grupoDoDado(dados) == meuGrupo();
     }
 
-    // ------------------------------------------------------------ usuários
-    match /usuarios/{uid} {
-      allow get: if autenticado();
-      // As consultas do app sempre filtram por grupoId.
-      allow list: if autenticado();
-
-      allow create: if autenticado()
-        && request.auth.uid == uid
-        && request.resource.data.perfil == 'aluno'
-        && request.resource.data.status == 'pendente'
-        && request.resource.data.grupoId is string;
-
-      allow update: if autenticado() && (
-        // Motorista do grupo aprova, desativa e edita alunos.
-        (
-          ehMotorista()
-          && resource.data.grupoId == meuGrupo()
-          && request.resource.data.grupoId == resource.data.grupoId
-        )
-        // O próprio aluno edita o perfil, mas não troca perfil/status/grupo.
-        || (
-          request.auth.uid == uid
-          && request.resource.data.perfil == resource.data.perfil
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.grupoId == resource.data.grupoId
-        )
-      );
-
-      allow delete: if ehMotorista() && resource.data.grupoId == meuGrupo();
-
-      // Tokens FCM: cada usuário gerencia apenas os próprios dispositivos.
-      match /tokens/{token} {
-        allow read, write: if autenticado() && request.auth.uid == uid;
-      }
+    // ------------------------------------------------------- próprio perfil
+    // Inalterado: continua funcionando como no ruleset já publicado.
+    match /usuarios/{userId} {
+      allow get: if autenticado() && request.auth.uid == userId;
+      allow list, create, update, delete: if false;
     }
 
     // ------------------------------------------------------------- chamadas
+    // Leitura para o aluno ver a chamada do dia e para o motorista acompanhar.
+    // Somente o motorista ativo do grupo abre/encerra a chamada — necessário
+    // para o fluxo de confirmação e para bloquear respostas após a viagem.
     match /chamadas/{chamadaId} {
-      allow read: if autenticado();
-      allow create: if ehMotorista()
-        && grupoDoDado(request.resource.data) == meuGrupo();
-      allow update: if ehMotorista()
-        && resource.data.grupoId == meuGrupo()
-        && request.resource.data.grupoId == meuGrupo();
-      allow delete: if ehMotorista() && resource.data.grupoId == meuGrupo();
+      allow get, list: if autenticado()
+        && (ehAlunoAtivo() || ehMotoristaAtivo())
+        && mesmoGrupo(resource.data);
+      allow create: if ehMotoristaAtivo()
+        && mesmoGrupo(request.resource.data)
+        && request.resource.data.get('motoristaId', '') == request.auth.uid;
+      allow update: if ehMotoristaAtivo()
+        && mesmoGrupo(resource.data)
+        && mesmoGrupo(request.resource.data)
+        && request.resource.data.get('motoristaId', '')
+          == resource.data.get('motoristaId', '');
+      allow delete: if ehMotoristaAtivo() && mesmoGrupo(resource.data);
     }
 
     // ------------------------------------------------------------- respostas
+    // ID obrigatório: "{chamadaId}_{alunoId}".
     match /respostas/{respostaId} {
-      allow read: if autenticado();
 
-      // O ID é sempre "{chamadaId}_{alunoId}".
-      function ehDoAluno() {
+      function idChamada() {
+        return respostaId.split('_')[0];
+      }
+
+      function ehRespostaDoAluno() {
         return respostaId.split('_')[1] == request.auth.uid;
       }
 
-      allow create, update: if autenticado()
-        && (ehDoAluno() || ehMotorista());
-      allow delete: if ehMotorista() || (autenticado() && ehDoAluno());
+      function chamadaDaResposta() {
+        return get(/databases/$(database)/documents/chamadas/$(idChamada())).data;
+      }
+
+      /// A resposta pertence ao chamador, ao grupo dele e a uma chamada aberta
+      /// do mesmo grupo. Chamada inexistente ou encerrada => nega (fail closed).
+      function respostaValidaDoAluno() {
+        return ehRespostaDoAluno()
+          && request.resource.data.get('alunoId', '') == request.auth.uid
+          && request.resource.data.get('chamadaId', '') == idChamada()
+          && mesmoGrupo(request.resource.data)
+          && chamadaDaResposta().get('status', '').lower() == 'aberta'
+          && mesmoGrupo(chamadaDaResposta());
+      }
+
+      function sentidoValido(valor) {
+        return valor in ['vai', 'naoVai', 'semResposta'];
+      }
+
+      function sentidosValidos() {
+        return sentidoValido(request.resource.data.get('ida', 'semResposta'))
+          && sentidoValido(request.resource.data.get('volta', 'semResposta'));
+      }
+
+      // Aluno: apenas a própria resposta. Motorista: respostas do próprio
+      // grupo. As consultas do Flutter usam `chamadaId` e, para o aluno,
+      // também `alunoId`, compatíveis com esta regra.
+      allow get, list: if autenticado()
+        && mesmoGrupo(resource.data)
+        && (
+          (ehAlunoAtivo()
+            && resource.data.get('alunoId', '') == request.auth.uid)
+          || ehMotoristaAtivo()
+        );
+
+      allow create: if ehAlunoAtivo()
+        && respostaValidaDoAluno()
+        && sentidosValidos()
+        && request.resource.data.keys().hasOnly([
+          'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm'
+        ]);
+
+      // `diff().affectedKeys()` permite preservar campos de outras fases
+      // (estouIndo/liberadoEm/avisadoEm) sem ampliar o conjunto editável.
+      allow update: if ehAlunoAtivo()
+        && respostaValidaDoAluno()
+        && sentidosValidos()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm'
+        ]);
+
+      allow delete: if false;
     }
 
-    // -------------------------------------------------------------- viagens
-    match /viagens/{viagemId} {
-      allow read: if autenticado();
-      allow create: if ehMotorista()
-        && grupoDoDado(request.resource.data) == meuGrupo();
-      allow delete: if ehMotorista()
-        && resource.data.grupoId == meuGrupo();
-
-      allow update: if autenticado() && (
-        // Motorista conduz a viagem.
-        (
-          ehMotorista()
-          && resource.data.grupoId == meuGrupo()
-          && request.resource.data.grupoId == meuGrupo()
-        )
-        // Aluno só altera a própria confirmação (estou indo / liberado).
-        || (
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['confirmacoes'])
-          && request.resource.data.confirmacoes is list
-          && request.resource.data.confirmacoes.size()
-            == resource.data.confirmacoes.size()
-        )
-      );
-    }
-
-    // ------------------------------------------------------------- padrões
-    match /padroes/{uid} {
-      allow read, write: if autenticado() && request.auth.uid == uid;
-    }
-
-    // ------------------------------------------------------------- convites
-    match /convites/{token} {
-      // O cadastro acontece antes do login, por isso o get é público.
-      // O token é longo e difícil de adivinhar; listagem fica bloqueada.
-      allow get: if true;
-      allow list: if false;
-      allow create, update: if ehMotorista()
-        && request.resource.data.grupoId == meuGrupo();
-      allow delete: if ehMotorista();
-    }
-
-    // --------------------------------------------------------- notificações
-    match /notificacoes/{notificacaoId} {
-      // A Cloud Function usa o Admin SDK (ignora regras). O cliente apenas
-      // enfileira a notificação quando o motorista avisa os alunos.
-      allow read: if false;
-      allow create: if ehMotorista()
-        && grupoDoDado(request.resource.data) == meuGrupo();
-      allow update, delete: if false;
-    }
-
-    // Negar tudo o que não foi tratado acima.
+    // -------------------------------------------------- demais coleções
+    // viagens, padroes, convites, notificacoes, grupos, tokens etc. continuam
+    // bloqueados até que cada funcionalidade tenha suas regras aprovadas.
     match /{document=**} {
       allow read, write: if false;
     }
