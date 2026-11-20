@@ -75,27 +75,11 @@ class _AvisoChegadaScreenState extends State<AvisoChegadaScreen> {
                 ),
                 child: Column(
                   children: [
-                    Container(
+                    Image.asset(
+                      'assets/images/vango_simbolo.png',
                       width: 72,
                       height: 72,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryYellow,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryYellow.withValues(
-                              alpha: 0.4,
-                            ),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.directions_bus_rounded,
-                        size: 40,
-                        color: AppTheme.primaryDark,
-                      ),
+                      fit: BoxFit.contain,
                     ),
                     const SizedBox(height: 20),
                     const Text(

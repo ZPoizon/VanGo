@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../core/resultado.dart';
 import '../core/store.dart';
 import '../models/chamada.dart';
+import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
 import '../models/usuario.dart';
@@ -35,6 +36,8 @@ class DemoStore extends VanGoStore {
 
   final List<Usuario> _usuarios;
   final Map<String, RespostaPresenca> _respostas;
+  final List<NotificacaoResposta> _notificacoesResposta =
+      <NotificacaoResposta>[];
   final List<Viagem> _historico;
 
   Chamada? _chamada;
@@ -270,6 +273,10 @@ class DemoStore extends VanGoStore {
   }
 
   @override
+  List<NotificacaoResposta> get notificacoesResposta =>
+      List<NotificacaoResposta>.unmodifiable(_notificacoesResposta);
+
+  @override
   Future<OperacaoResultado> abrirChamada() async {
     if (_viagemAtual?.status == StatusViagem.emAndamento) {
       return const OperacaoResultado.erro(
@@ -279,6 +286,7 @@ class DemoStore extends VanGoStore {
     if (_chamada?.aberta ?? false) {
       return const OperacaoResultado.erro('Já existe uma chamada aberta.');
     }
+    _notificacoesResposta.clear();
     final agora = DateTime.now();
     _chamada = Chamada(
       id: 'chamada-${agora.millisecondsSinceEpoch}',
@@ -332,17 +340,72 @@ class DemoStore extends VanGoStore {
         'Não é mais possível alterar a resposta.',
       );
     }
-    _respostas[usuario.id] = respostaDe(usuario.id).copyWith(
-      ida: ida == null
-          ? null
-          : (ida ? RespostaSentido.vai : RespostaSentido.naoVai),
-      volta: volta == null
-          ? null
-          : (volta ? RespostaSentido.vai : RespostaSentido.naoVai),
+    final anterior = respostaDe(usuario.id);
+    final novaIda = ida == null
+        ? null
+        : (ida ? RespostaSentido.vai : RespostaSentido.naoVai);
+    final novaVolta = volta == null
+        ? null
+        : (volta ? RespostaSentido.vai : RespostaSentido.naoVai);
+    final mudouIda = novaIda != null && novaIda != anterior.ida;
+    final mudouVolta = novaVolta != null && novaVolta != anterior.volta;
+
+    if (!mudouIda && !mudouVolta) {
+      return const OperacaoResultado.ok('Presença já registrada.');
+    }
+
+    if (mudouIda && anterior.ida != RespostaSentido.semResposta) {
+      _registrarNotificacaoResposta(
+        usuario.id,
+        usuario.nome,
+        SentidoViagem.ida,
+        anterior.ida,
+        novaIda,
+      );
+    }
+    if (mudouVolta && anterior.volta != RespostaSentido.semResposta) {
+      _registrarNotificacaoResposta(
+        usuario.id,
+        usuario.nome,
+        SentidoViagem.volta,
+        anterior.volta,
+        novaVolta,
+      );
+    }
+
+    _respostas[usuario.id] = anterior.copyWith(
+      ida: mudouIda ? novaIda : null,
+      volta: mudouVolta ? novaVolta : null,
       respondidoEm: DateTime.now(),
     );
     notifyListeners();
     return const OperacaoResultado.ok('Presença atualizada.');
+  }
+
+  void _registrarNotificacaoResposta(
+    String alunoId,
+    String alunoNome,
+    SentidoViagem sentido,
+    RespostaSentido anterior,
+    RespostaSentido? atual,
+  ) {
+    if (atual == null || atual == RespostaSentido.semResposta) return;
+    final agora = DateTime.now();
+    _notificacoesResposta.insert(
+      0,
+      NotificacaoResposta(
+        id: '${alunoId}_${sentido.name}_${agora.microsecondsSinceEpoch}',
+        alunoId: alunoId,
+        alunoNome: alunoNome,
+        sentido: sentido,
+        anterior: anterior,
+        atual: atual,
+        criadoEm: agora,
+      ),
+    );
+    if (_notificacoesResposta.length > 20) {
+      _notificacoesResposta.removeRange(20, _notificacoesResposta.length);
+    }
   }
 
   void _atualizarRespostaDoAluno(

@@ -9,6 +9,7 @@ import 'package:vango/core/widgets/status_chip.dart';
 import 'package:vango/core/widgets/student_list_tile.dart';
 import 'package:vango/core/widgets/vango_app_bar.dart';
 import 'package:vango/core/widgets/vango_card.dart';
+import 'package:vango/features/driver/widgets/alteracoes_presenca_card.dart';
 import 'package:vango/models/presenca.dart';
 
 class DailyListScreen extends StatelessWidget {
@@ -78,6 +79,18 @@ class DailyListScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (store.notificacoesResposta.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        0,
+                        AppSpacing.lg,
+                        AppSpacing.sm,
+                      ),
+                      child: AlteracoesPresencaCard(
+                        notificacoes: store.notificacoesResposta,
+                      ),
+                    ),
                   Expanded(
                     child: presencas.isEmpty
                         ? const EstadoView(

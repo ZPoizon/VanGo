@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/chamada.dart';
+import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
 import '../models/usuario.dart';
@@ -65,6 +66,10 @@ abstract class VanGoStore extends ChangeNotifier {
   List<PresencaAluno> get presencasChamada;
   RespostaPresenca respostaDe(String alunoId);
   bool get respostaBloqueada;
+
+  /// Avisos de alterações de resposta já registradas, em ordem do mais recente
+  /// para o mais antigo. Usado pelo motorista; alunos não exibem esta lista.
+  List<NotificacaoResposta> get notificacoesResposta;
 
   Future<OperacaoResultado> abrirChamada();
   Future<OperacaoResultado> encerrarChamada();

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vango/demo/demo_store.dart';
 import 'package:vango/models/presenca.dart';
 import 'package:vango/models/usuario.dart';
+import 'package:vango/models/viagem.dart';
 
 void main() {
   late DemoStore store;
@@ -73,5 +74,54 @@ void main() {
     final resultado = await store.responderChamada(ida: true);
 
     expect(resultado.sucesso, isFalse);
+  });
+
+  test('primeira resposta não gera notificação', () async {
+    await store.responderChamada(ida: true);
+    await store.responderChamada(volta: false);
+
+    expect(store.notificacoesResposta, isEmpty);
+  });
+
+  test('alteração da volta gera aviso e repetir a opção não duplica', () async {
+    await store.responderChamada(ida: true, volta: false);
+    expect(store.notificacoesResposta, isEmpty);
+
+    await store.responderChamada(volta: true);
+
+    expect(store.notificacoesResposta, hasLength(1));
+    final aviso = store.notificacoesResposta.single;
+    expect(aviso.alunoId, alunoId);
+    expect(aviso.sentido, SentidoViagem.volta);
+    expect(aviso.anterior, RespostaSentido.naoVai);
+    expect(aviso.atual, RespostaSentido.vai);
+    expect(aviso.mudanca, 'Volta: Não vai → Vai');
+
+    await store.responderChamada(volta: true);
+
+    expect(store.notificacoesResposta, hasLength(1));
+  });
+
+  test('alteração da ida gera aviso separado', () async {
+    await store.responderChamada(ida: true, volta: true);
+    await store.responderChamada(ida: false);
+
+    expect(store.notificacoesResposta, hasLength(1));
+    final aviso = store.notificacoesResposta.single;
+    expect(aviso.sentido, SentidoViagem.ida);
+    expect(aviso.mudanca, 'Ida: Vai → Não vai');
+  });
+
+  test('não notifica alteração recusada após o encerramento', () async {
+    await store.responderChamada(ida: true, volta: false);
+
+    await store.entrarComo(PerfilUsuario.motorista);
+    await store.encerrarChamada();
+    await store.entrarComo(PerfilUsuario.aluno);
+
+    final resultado = await store.responderChamada(volta: true);
+
+    expect(resultado.sucesso, isFalse);
+    expect(store.notificacoesResposta, isEmpty);
   });
 }

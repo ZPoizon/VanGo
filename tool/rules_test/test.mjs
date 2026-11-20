@@ -35,7 +35,7 @@ const rules = readFileSync(
 
 const testEnv = await initializeTestEnvironment({
   projectId: PROJECT_ID,
-  firestore: { rules, host: '127.0.0.1', port: 8080 },
+  firestore: { rules, host: '127.0.0.1', port: 8081 },
 });
 
 let permitidos = 0;
@@ -126,6 +126,21 @@ await permitido('aluno altera somente a volta', async () => {
   });
 });
 
+await permitido('aluno altera a mesma resposta várias vezes enquanto aberta', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'respostas', `chamada1_${ALUNO}`), {
+      chamadaId: 'chamada1', alunoId: ALUNO, grupoId: GRUPO,
+      ida: 'vai', volta: 'naoVai', respondidoEm: Timestamp.now(),
+    });
+  });
+  await updateDoc(doc(ctxAluno(), 'respostas', `chamada1_${ALUNO}`), {
+    volta: 'vai', respondidoEm: Timestamp.now(),
+  });
+  return updateDoc(doc(ctxAluno(), 'respostas', `chamada1_${ALUNO}`), {
+    ida: 'naoVai', respondidoEm: Timestamp.now(),
+  });
+});
+
 await permitido('aluno lista somente a própria resposta (chamadaId + alunoId)', () =>
   getDocs(query(
     collection(ctxAluno(), 'respostas'),
@@ -208,6 +223,18 @@ await proibido('aluno não responde chamada encerrada', () =>
   setDoc(doc(ctxAluno(), 'respostas', `chamadaFechada_${ALUNO}`), {
     chamadaId: 'chamadaFechada', alunoId: ALUNO, grupoId: GRUPO, ida: 'vai', volta: 'vai',
   }));
+
+await proibido('aluno não altera resposta existente de chamada encerrada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'respostas', `chamadaFechada_${ALUNO}`), {
+      chamadaId: 'chamadaFechada', alunoId: ALUNO, grupoId: GRUPO,
+      ida: 'vai', volta: 'naoVai', respondidoEm: Timestamp.now(),
+    });
+  });
+  return updateDoc(doc(ctxAluno(), 'respostas', `chamadaFechada_${ALUNO}`), {
+    volta: 'vai', respondidoEm: Timestamp.now(),
+  });
+});
 
 await proibido('aluno não responde chamada inexistente', () =>
   setDoc(doc(ctxAluno(), 'respostas', `chamadaInexistente_${ALUNO}`), {

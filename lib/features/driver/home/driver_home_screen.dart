@@ -11,6 +11,7 @@ import 'package:vango/core/widgets/vango_avatar.dart';
 import 'package:vango/core/widgets/vango_button.dart';
 import 'package:vango/core/widgets/vango_card.dart';
 import 'package:vango/core/store.dart';
+import 'package:vango/features/driver/widgets/alteracoes_presenca_card.dart';
 import 'package:vango/models/usuario.dart';
 import 'package:vango/models/viagem.dart';
 
@@ -91,6 +92,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
             const SizedBox(height: AppSpacing.lg),
             _CartaoOperacao(store: store),
+            if (store.notificacoesResposta.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              AlteracoesPresencaCard(
+                notificacoes: store.notificacoesResposta,
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             _AcoesOperacao(
               store: store,

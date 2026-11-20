@@ -184,7 +184,7 @@ class _ListaViagemScreenState extends State<ListaViagemScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${item.aluno.faculdade} · Entra ${item.aluno.horarioEntrada} · Sai ${item.aluno.horarioSaida}',
+                              '${item.aluno.faculdade} · ${item.aluno.periodo ?? ""}',
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: AppTheme.textSecondary,

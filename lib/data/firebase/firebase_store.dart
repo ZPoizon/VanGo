@@ -9,6 +9,7 @@ import '../../core/notifications/push_notifications.dart';
 import '../../core/resultado.dart';
 import '../../core/store.dart';
 import '../../models/chamada.dart';
+import '../../models/notificacao_resposta.dart';
 import '../../models/padrao_semanal.dart';
 import '../../models/presenca.dart';
 import '../../models/usuario.dart';
@@ -58,6 +59,9 @@ class FirebaseStore extends VanGoStore {
 
   List<Usuario> _usuarios = <Usuario>[];
   final Map<String, RespostaPresenca> _respostas = <String, RespostaPresenca>{};
+  final List<NotificacaoResposta> _notificacoesResposta =
+      <NotificacaoResposta>[];
+  bool _respostasCarregadas = false;
   List<Viagem> _historico = <Viagem>[];
   Chamada? _chamada;
   Viagem? _viagemAtual;
@@ -367,6 +371,8 @@ class FirebaseStore extends VanGoStore {
     _usuarioAtual = null;
     _usuarios = <Usuario>[];
     _respostas.clear();
+    _notificacoesResposta.clear();
+    _respostasCarregadas = false;
     _chamada = null;
     _viagemAtual = null;
     _historico = <Viagem>[];
@@ -519,6 +525,8 @@ class FirebaseStore extends VanGoStore {
   void _assinarRespostas() {
     unawaited(_respostasSub?.cancel());
     _respostas.clear();
+    _notificacoesResposta.clear();
+    _respostasCarregadas = false;
     final chamada = _chamada;
     if (chamada == null) {
       _notificar();
@@ -539,16 +547,74 @@ class FirebaseStore extends VanGoStore {
     _respostasSub = consulta
         .snapshots()
         .listen((snapshot) {
+          final atuais = <String, RespostaPresenca>{};
+          for (final doc in snapshot.docs) {
+            final resposta = respostaFromDoc(doc);
+            atuais[resposta.alunoId] = resposta;
+          }
+
+          // Compara com o snapshot anterior somente no cliente do motorista.
+          // O primeiro snapshot é a linha de base e nunca gera aviso.
+          if (_usuarioAtual?.perfil == PerfilUsuario.motorista &&
+              _respostasCarregadas) {
+            for (final entrada in atuais.entries) {
+              final anterior = _respostas[entrada.key];
+              if (anterior != null) {
+                _registrarAlteracoesResposta(anterior, entrada.value);
+              }
+            }
+          }
+
           _respostas
             ..clear()
-            ..addEntries(
-              snapshot.docs.map((doc) {
-                final resposta = respostaFromDoc(doc);
-                return MapEntry(resposta.alunoId, resposta);
-              }),
-            );
+            ..addAll(atuais);
+          _respostasCarregadas = true;
           _notificar();
         }, onError: (Object e) => _aoFalharStream(e, 'respostas:list'));
+  }
+
+  /// Registra um aviso apenas quando um sentido já respondido mudou de fato.
+  /// Primeira resposta e repetição da mesma opção não geram notificação.
+  void _registrarAlteracoesResposta(
+    RespostaPresenca anterior,
+    RespostaPresenca atual,
+  ) {
+    final nome = alunoPorId(atual.alunoId)?.nome ?? 'Aluno';
+
+    void registrar(
+      SentidoViagem sentido,
+      RespostaSentido de,
+      RespostaSentido para,
+    ) {
+      if (de == RespostaSentido.semResposta ||
+          para == RespostaSentido.semResposta ||
+          de == para) {
+        return;
+      }
+      final agora = DateTime.now();
+      _notificacoesResposta.insert(
+        0,
+        NotificacaoResposta(
+          id: '${atual.alunoId}_${sentido.name}_'
+              '${agora.microsecondsSinceEpoch}',
+          alunoId: atual.alunoId,
+          alunoNome: nome,
+          sentido: sentido,
+          anterior: de,
+          atual: para,
+          criadoEm: agora,
+        ),
+      );
+      if (_notificacoesResposta.length > 20) {
+        _notificacoesResposta.removeRange(
+          20,
+          _notificacoesResposta.length,
+        );
+      }
+    }
+
+    registrar(SentidoViagem.ida, anterior.ida, atual.ida);
+    registrar(SentidoViagem.volta, anterior.volta, atual.volta);
   }
 
   void _assinarPadrao(String uid) {
@@ -734,6 +800,10 @@ class FirebaseStore extends VanGoStore {
   }
 
   @override
+  List<NotificacaoResposta> get notificacoesResposta =>
+      List<NotificacaoResposta>.unmodifiable(_notificacoesResposta);
+
+  @override
   Future<OperacaoResultado> abrirChamada() async {
     if (!ehMotorista) {
       return const OperacaoResultado.erro(
@@ -827,7 +897,22 @@ class FirebaseStore extends VanGoStore {
       );
     }
 
-    // Grava somente os sentidos informados. Com `merge`, o sentido omitido é
+    final anterior = respostaDe(usuario.id);
+    final novaIda = ida == null
+        ? null
+        : (ida ? RespostaSentido.vai : RespostaSentido.naoVai);
+    final novaVolta = volta == null
+        ? null
+        : (volta ? RespostaSentido.vai : RespostaSentido.naoVai);
+
+    // Repetir a opção já marcada não grava nem notifica o motorista.
+    final mudouIda = novaIda != null && novaIda != anterior.ida;
+    final mudouVolta = novaVolta != null && novaVolta != anterior.volta;
+    if (!mudouIda && !mudouVolta) {
+      return const OperacaoResultado.ok('Presença já registrada.');
+    }
+
+    // Grava somente os sentidos alterados. Com `merge`, o sentido omitido é
     // preservado no Firestore: não há documento duplicado nem valor conflitante.
     final dados = <String, dynamic>{
       'chamadaId': chamada.id,
@@ -835,34 +920,26 @@ class FirebaseStore extends VanGoStore {
       'grupoId': _grupoAtual,
       'respondidoEm': FieldValue.serverTimestamp(),
     };
-    if (ida != null) {
-      dados['ida'] = ida
-          ? RespostaSentido.vai.name
-          : RespostaSentido.naoVai.name;
-    }
-    if (volta != null) {
-      dados['volta'] = volta
-          ? RespostaSentido.vai.name
-          : RespostaSentido.naoVai.name;
-    }
+    if (mudouIda) dados['ida'] = novaIda.name;
+    if (mudouVolta) dados['volta'] = novaVolta.name;
 
     try {
       await _respostaRef(chamada.id, usuario.id)
           .set(dados, SetOptions(merge: true));
 
-      final anterior = respostaDe(usuario.id);
       _respostas[usuario.id] = anterior.copyWith(
-        ida: ida == null
-            ? null
-            : (ida ? RespostaSentido.vai : RespostaSentido.naoVai),
-        volta: volta == null
-            ? null
-            : (volta ? RespostaSentido.vai : RespostaSentido.naoVai),
+        ida: mudouIda ? novaIda : null,
+        volta: mudouVolta ? novaVolta : null,
         respondidoEm: DateTime.now(),
       );
       _notificar();
       return const OperacaoResultado.ok('Presença atualizada.');
     } catch (error) {
+      if (_ehPermissionDenied(error)) {
+        return const OperacaoResultado.erro(
+          'A chamada foi encerrada. Não é mais possível alterar a resposta.',
+        );
+      }
       return _erroOperacao('salvar a resposta', error);
     }
   }
