@@ -4,8 +4,12 @@ import 'package:vango/models/chamada.dart';
 import 'package:vango/models/usuario.dart';
 import 'package:vango/models/viagem.dart';
 
+import 'support/fake_path_provider.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(FakePathProvider.instalar);
+  tearDownAll(FakePathProvider.remover);
   late DemoStore store;
 
   setUp(() async {

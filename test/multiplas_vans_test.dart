@@ -4,6 +4,8 @@ import 'package:vango/demo/demo_store.dart';
 import 'package:vango/models/grupo.dart';
 import 'package:vango/models/usuario.dart';
 
+import 'support/fake_path_provider.dart';
+
 Future<DemoStore> _motoristaSemGrupo() async {
   final store = DemoStore.demo();
   final resultado = await store.cadastrarMotorista(
@@ -18,6 +20,8 @@ Future<DemoStore> _motoristaSemGrupo() async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(FakePathProvider.instalar);
+  tearDownAll(FakePathProvider.remover);
 
   test(
     'motorista cria várias vans com códigos únicos e troca de grupo',
