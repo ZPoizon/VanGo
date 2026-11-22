@@ -50,6 +50,8 @@ const ALUNO_B = 'aluno-b-uid';
 const ALUNO_RECUSADO = 'aluno-recusado-uid';
 const GRUPO_B = `grupo_${MOTORISTA_B}_222333`;
 const CODIGO_B = '222333';
+const GRUPO_CODIGO_PUBLICO = `grupo_${MOTORISTA}_555777`;
+const CODIGO_PUBLICO = '555777';
 
 const rules = readFileSync(
   new URL('../../firestore.rules', import.meta.url),
@@ -134,6 +136,11 @@ async function semear() {
       motoristaId: MOTORISTA_B,
       codigo: CODIGO_B,
     });
+    await setDoc(doc(db, 'grupos', GRUPO_CODIGO_PUBLICO), {
+      nome: 'Van Código Público',
+      motoristaId: MOTORISTA,
+      codigo: CODIGO_PUBLICO,
+    });
 
     await setDoc(doc(db, 'codigos', '123456'), { grupoId: GRUPO, motoristaId: MOTORISTA, reservadoEm: Timestamp.now(), reservadoPor: MOTORISTA });
     await setDoc(doc(db, 'codigos', '654321'), { grupoId: OUTRO_GRUPO, motoristaId: OUTRO_GRUPO_UID, reservadoEm: Timestamp.now(), reservadoPor: OUTRO_GRUPO_UID });
@@ -145,6 +152,9 @@ async function semear() {
     await setDoc(doc(db, 'codigos', CODIGO_RESERVA_SEM_LEGADO), { reservadoEm: Timestamp.now(), reservadoPor: MOTORISTA_SEM_LEGADO });
     await setDoc(doc(db, 'codigos', CODIGO_B), {
       grupoId: GRUPO_B, motoristaId: MOTORISTA_B, reservadoEm: Timestamp.now(), reservadoPor: MOTORISTA_B,
+    });
+    await setDoc(doc(db, 'codigos', CODIGO_PUBLICO), {
+      grupoId: GRUPO_CODIGO_PUBLICO, motoristaId: MOTORISTA, reservadoEm: Timestamp.now(), reservadoPor: MOTORISTA,
     });
 
     await setDoc(doc(db, 'chamadas', 'chamada1'), {
@@ -859,6 +869,15 @@ await proibido('motorista não cria grupo com código curto', () =>
 
 await permitido('qualquer autenticado lê grupo por código (busca pública)', () =>
   getDoc(doc(ctxAluno(), 'grupos', GRUPO)));
+
+await permitido('aluno sem grupo lê a van apontada pelo código público', () =>
+  getDoc(doc(ctxAlunoSemGrupo(), 'grupos', GRUPO_CODIGO_PUBLICO)));
+
+await proibido('aluno sem grupo não lê grupo sem mapeamento de código válido', () =>
+  getDoc(doc(ctxAlunoSemGrupo(), 'grupos', OUTRO_GRUPO)));
+
+await proibido('aluno pendente vinculado não lê outra van por código', () =>
+  getDoc(doc(ctxAlunoPendente(), 'grupos', GRUPO_CODIGO_PUBLICO)));
 
 // O app resolve o código pelo documento pontual de `codigos`, não por listagem
 // de grupos: a consulta abaixo continua bloqueada para alunos.

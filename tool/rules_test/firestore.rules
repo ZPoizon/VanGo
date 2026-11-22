@@ -73,6 +73,21 @@ service cloud.firestore {
         && dados.get('motoristaId', '') == request.auth.uid;
     }
 
+    /// Busca pública pela van: o aluno ainda não tem vínculo, mas o documento
+    /// pontual do código de entrada aponta para este grupo e para o motorista
+    /// que o criou. Alunos já vinculados continuam restritos ao próprio grupo.
+    function grupoResolvidoPorCodigoPublico(grupoId, dadosGrupo) {
+      return perfilEh('aluno')
+        && dadosDoPerfil().get('grupoId', '') == ''
+        && grupoId.split('_').size() == 3
+        && grupoId.split('_')[0] == 'grupo'
+        && grupoId.split('_')[2].matches('^[0-9]{6}$')
+        && exists(/databases/$(database)/documents/codigos/$(grupoId.split('_')[2]))
+        && get(/databases/$(database)/documents/codigos/$(grupoId.split('_')[2])).data.get('grupoId', '') == grupoId
+        && get(/databases/$(database)/documents/codigos/$(grupoId.split('_')[2])).data.get('motoristaId', '')
+          == dadosGrupo.get('motoristaId', '');
+    }
+
     /// Uma chamada só aceita respostas enquanto está aberta e nenhuma viagem
     /// iniciada a partir dela bloqueou as confirmações.
     function chamadaAceitaRespostas(chamada) {
@@ -228,14 +243,16 @@ service cloud.firestore {
 
     // ------------------------------------------------------------- grupos
     match /grupos/{grupoId} {
-      // Leitura pontual: motorista dono, aluno ativo da van, ou aluno
-      // pendente/recusado vinculado a essa van (apenas para exibir nome/status).
+      // Leitura pontual: motorista dono, aluno ativo da van, aluno
+      // pendente/recusado vinculado a essa van (apenas para exibir nome/status)
+      // ou aluno sem vínculo que resolveu o código público desta van.
       // A listagem continua restrita ao motorista dono.
       allow get: if autenticado()
         && (
           motoristaDoGrupo(resource.data)
           || (ehAlunoAtivo() && grupoId == meuGrupo())
           || (perfilEh('aluno') && dadosDoPerfil().get('grupoId', '') == grupoId)
+          || grupoResolvidoPorCodigoPublico(grupoId, resource.data)
         );
 
       // Listagem restrita ao motorista dono do grupo
