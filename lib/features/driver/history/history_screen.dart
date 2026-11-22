@@ -207,11 +207,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                             ),
                                           ),
                                           const SizedBox(height: 4),
-                                          StatusChip(
-                                            label:
-                                                '${viagem.totalConfirmados} confirmado(s)',
-                                            tone: VangoTone.success,
-                                            compact: true,
+                                          Row(
+                                            children: [
+                                              StatusChip.viagem(
+                                                viagem.status,
+                                                compact: true,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              StatusChip(
+                                                label:
+                                                    '${viagem.totalConfirmados} confirmado(s)',
+                                                tone: VangoTone.info,
+                                                compact: true,
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),

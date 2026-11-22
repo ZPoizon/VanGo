@@ -28,7 +28,7 @@ class HistoryDetailScreen extends StatelessWidget {
         appBar: VangoAppBar(title: 'Detalhe da viagem'),
         body: EstadoView(
           titulo: 'Viagem não encontrada',
-          mensagem: 'Esta viagem não está disponível no histórico local.',
+          mensagem: 'Esta viagem ainda não está disponível no histórico.',
           tipo: EstadoTipo.erro,
         ),
       );
@@ -55,10 +55,7 @@ class HistoryDetailScreen extends StatelessWidget {
                             : VangoTone.success,
                       ),
                       const SizedBox(width: AppSpacing.xs),
-                      const StatusChip(
-                        label: 'Encerrada',
-                        tone: VangoTone.neutral,
-                      ),
+                      StatusChip.viagem(viagem.status),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -87,6 +84,18 @@ class HistoryDetailScreen extends StatelessWidget {
                       color: AppColors.muted,
                     ),
                   ),
+                  if (viagem.motivoCancelamento != null &&
+                      viagem.motivoCancelamento!.isNotEmpty) ...[
+                    const Divider(height: AppSpacing.lg),
+                    Text(
+                      'Motivo do cancelamento: ${viagem.motivoCancelamento}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

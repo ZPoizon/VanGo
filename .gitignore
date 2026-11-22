@@ -61,3 +61,18 @@ tool/rules_test/node_modules/
 tool/rules_test/firestore.rules
 functions/.env
 functions/*.local
+
+# Firebase/emulator local logs
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebaserc.local
+
+# Playwright/temp
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Local backups
+*.backup
+*firestore.rules.*backup*

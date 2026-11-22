@@ -53,7 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() {
       _carregando = false;
-      if (resultado == LoginResultado.sucesso) {
+      // Usuário pendente ou recusado também entra na própria Home: o cartão
+      // da van orienta a solicitar entrada, sem acesso a dados privados.
+      if (resultado == LoginResultado.sucesso ||
+          resultado == LoginResultado.pendente) {
         _erro = null;
         return;
       }
@@ -62,7 +65,8 @@ class _LoginScreenState extends State<LoginScreen> {
       // conclusivas. Anexar `store.erro` aqui fazia um erro antigo de rede
       // aparecer como se fosse a causa de um `invalid-credential`.
       final detalhe = store.erro;
-      final mostrarDetalhe = resultado == LoginResultado.offline &&
+      final mostrarDetalhe =
+          resultado == LoginResultado.offline &&
           detalhe != null &&
           detalhe.isNotEmpty &&
           detalhe != resultado.mensagem;
@@ -261,17 +265,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         Flexible(
                           child: TextButton(
-                            onPressed: () {
-                              if (store.modoDemo) {
-                                context.go('/signup/convite-demo');
-                              } else {
-                                mostrarToast(
-                                  context,
-                                  'O cadastro é feito pelo link de convite '
-                                  'enviado pelo motorista do grupo.',
-                                );
-                              }
-                            },
+                            onPressed: () => context.push('/signup/choice'),
                             child: const Text(
                               'Criar conta',
                               textAlign: TextAlign.center,

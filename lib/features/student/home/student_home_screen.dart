@@ -5,11 +5,13 @@ import 'package:vango/app/theme/app_colors.dart';
 import 'package:vango/app/theme/app_spacing.dart';
 import 'package:vango/core/store_scope.dart';
 import 'package:vango/core/formatadores.dart';
+import 'package:vango/core/widgets/estado_view.dart';
 import 'package:vango/core/widgets/feedback.dart';
 import 'package:vango/core/widgets/status_chip.dart';
 import 'package:vango/core/widgets/vango_avatar.dart';
 import 'package:vango/core/widgets/vango_button.dart';
 import 'package:vango/core/widgets/vango_card.dart';
+import 'package:vango/models/chamada.dart';
 import 'package:vango/models/presenca.dart';
 import 'package:vango/models/usuario.dart';
 import 'package:vango/models/viagem.dart';
@@ -24,6 +26,11 @@ class StudentHomeScreen extends StatelessWidget {
     final usuario = store.usuarioAtual;
     if (usuario == null) return const SizedBox.shrink();
 
+    final grupoId = usuario.grupoId?.trim() ?? '';
+    final semGrupo = grupoId.isEmpty;
+    final aprovado = usuario.podeAcessar;
+    final mostrarSituacaoGrupo = !aprovado || semGrupo;
+
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
@@ -35,21 +42,30 @@ class StudentHomeScreen extends StatelessWidget {
                 usuario: usuario,
                 onPerfil: () => context.push('/student/profile'),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              _AvisoChegadaCard(store: store),
-              const SizedBox(height: AppSpacing.md),
-              _ChamadaAmanhaCard(store: store, usuario: usuario),
-              const SizedBox(height: AppSpacing.md),
-              _LiberacaoCard(store: store, usuario: usuario),
-              const SizedBox(height: AppSpacing.md),
-              _HorariosCard(store: store),
+              if (mostrarSituacaoGrupo) ...[
+                const SizedBox(height: AppSpacing.lg),
+                _SituacaoGrupoCard(store: store, usuario: usuario),
+              ],
+              if (aprovado) ...[
+                const SizedBox(height: AppSpacing.lg),
+                _AvisoChegadaCard(store: store),
+                const SizedBox(height: AppSpacing.md),
+                _ChamadaAmanhaCard(store: store, usuario: usuario),
+                const SizedBox(height: AppSpacing.md),
+                _LiberacaoCard(store: store, usuario: usuario),
+                const SizedBox(height: AppSpacing.md),
+                _HorariosCard(store: store),
+              ],
               const SizedBox(height: AppSpacing.md),
               _MenuAluno(
+                aprovado: aprovado,
+                onPerfil: () => context.push('/student/profile'),
                 onQuemVaiHoje: () => context.push('/student/today'),
                 onPadrao: () => context.push('/student/schedule'),
-                onNotificacoes: () => _abrirNotificacoesDemo(context),
-                onSair: () {
-                  StoreScope.read(context).sair();
+                onNotificacoes: () => _abrirNotificacoes(context, store),
+                onSair: () async {
+                  await StoreScope.read(context).sair();
+                  if (!context.mounted) return;
                   context.go('/login');
                 },
               ),
@@ -69,7 +85,7 @@ class StudentHomeScreen extends StatelessWidget {
     );
   }
 
-  void _abrirNotificacoesDemo(BuildContext context) {
+  void _abrirNotificacoes(BuildContext context, VanGoStore store) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -85,7 +101,7 @@ class StudentHomeScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Prévia de notificações',
+              'Notificações',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -94,23 +110,14 @@ class StudentHomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.xxs),
             const Text(
-              'Simulação visual (SCR-018 e SCR-019). O envio real via FCM '
-              'entra na Etapa 4.',
+              'Avisos enviados pelo motorista da sua van.',
               style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
             const SizedBox(height: AppSpacing.md),
-            _NotificacaoDemo(
-              titulo: 'Chamada aberta!',
-              texto: 'Confirme sua presença de amanhã.',
-              hora: 'agora',
-              onTap: () => Navigator.of(sheetContext).pop(),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _NotificacaoDemo(
-              titulo: 'Lembrete da chamada',
-              texto: 'Você ainda não respondeu a chamada de amanhã.',
-              hora: 'há 2 h',
-              onTap: () => Navigator.of(sheetContext).pop(),
+            const EstadoView(
+              titulo: 'Nenhum aviso por aqui',
+              mensagem: 'Quando o motorista enviar avisos, eles aparecerão nas notificações do seu celular.',
+              tipo: EstadoTipo.vazio,
             ),
           ],
         ),
@@ -170,6 +177,153 @@ class _CabecalhoAluno extends StatelessWidget {
   }
 }
 
+/// Cartão de destaque da Home enquanto não há participação aprovada.
+///
+/// Também mantém o aluno informado sobre o nome da van solicitada, o motivo de
+/// uma recusa (quando houver) e a possibilidade de tentar novamente.
+class _SituacaoGrupoCard extends StatefulWidget {
+  const _SituacaoGrupoCard({required this.store, required this.usuario});
+
+  final VanGoStore store;
+  final Usuario usuario;
+
+  @override
+  State<_SituacaoGrupoCard> createState() => _SituacaoGrupoCardState();
+}
+
+class _SituacaoGrupoCardState extends State<_SituacaoGrupoCard> {
+  String? _nomeVan;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarNomeVan();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SituacaoGrupoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.usuario.grupoId != widget.usuario.grupoId) {
+      _carregarNomeVan();
+    }
+  }
+
+  Future<void> _carregarNomeVan() async {
+    final grupoId = widget.usuario.grupoId?.trim();
+    if (grupoId == null || grupoId.isEmpty) {
+      if (mounted) setState(() => _nomeVan = null);
+      return;
+    }
+    final grupo = await widget.store.buscarGrupoPorId(grupoId);
+    if (!mounted) return;
+    setState(() => _nomeVan = grupo?.nome);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final usuario = widget.usuario;
+    final grupoId = usuario.grupoId?.trim() ?? '';
+    final recusado = usuario.status == StatusConta.recusado;
+    final pendente =
+        usuario.status == StatusConta.pendente && grupoId.isNotEmpty;
+
+    late final String titulo;
+    late final String descricao;
+    late final Color cor;
+    late final Color corFundo;
+    late final IconData icone;
+    Widget? status;
+    String? acao;
+
+    if (recusado) {
+      titulo = 'Solicitação recusada';
+      descricao = (usuario.motivoRecusa?.trim().isNotEmpty ?? false)
+          ? 'Motivo: ${usuario.motivoRecusa!.trim()}'
+          : 'O motorista não aprovou esta solicitação. Você pode tentar '
+                'novamente com outro código.';
+      cor = AppColors.error;
+      corFundo = AppColors.errorSoft;
+      icone = Icons.cancel_outlined;
+      status = const StatusChip(
+        label: 'Recusada',
+        tone: VangoTone.error,
+        compact: true,
+      );
+      acao = 'Tentar novamente';
+    } else if (pendente) {
+      titulo = _nomeVan ?? 'Van solicitada';
+      descricao =
+          'Seu acesso será liberado automaticamente quando o '
+          'motorista aprovar a solicitação.';
+      cor = AppColors.warning;
+      corFundo = AppColors.warningSoft;
+      icone = Icons.hourglass_top_rounded;
+      status = const StatusChip(
+        label: 'Aguardando aprovação',
+        tone: VangoTone.warning,
+        icon: Icons.hourglass_top_rounded,
+        compact: true,
+      );
+    } else {
+      titulo = 'Você ainda não está em uma van';
+      descricao =
+          'Informe o código de seis dígitos fornecido pelo motorista '
+          'para solicitar entrada em um grupo.';
+      cor = AppColors.accent;
+      corFundo = AppColors.accentSoft;
+      icone = Icons.directions_bus_outlined;
+      acao = 'Entrar em um grupo';
+    }
+
+    return VangoCard(
+      color: corFundo,
+      borderColor: cor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: cor,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: Icon(icone, color: AppColors.text, size: 24),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+              ),
+              ?status,
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            descricao,
+            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+          ),
+          if (acao != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            VangoButton(
+              label: acao,
+              icon: Icons.group_add_outlined,
+              onPressed: () => context.push('/signup/enter-group'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _AvisoChegadaCard extends StatelessWidget {
   const _AvisoChegadaCard({required this.store});
 
@@ -179,7 +333,63 @@ class _AvisoChegadaCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final viagem = store.viagemAtual;
     final ativa = viagem?.status == StatusViagem.emAndamento;
-    final destino = ativa ? viagem!.id : 'demo';
+    final ultimaViagemCancelada =
+        store.historico.isNotEmpty &&
+            store.historico.first.status == StatusViagem.cancelada &&
+            !ativa
+        ? store.historico.first
+        : null;
+    final destino = ativa ? viagem!.id : '';
+
+    if (ultimaViagemCancelada != null) {
+      return VangoCard(
+        color: AppColors.errorSoft,
+        borderColor: AppColors.error,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.error,
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              child: const Icon(
+                Icons.cancel_outlined,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Viagem de ${ultimaViagemCancelada.sentido.label.toLowerCase()} cancelada',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    ultimaViagemCancelada.motivoCancelamento != null &&
+                            ultimaViagemCancelada.motivoCancelamento!.isNotEmpty
+                        ? 'Motivo: ${ultimaViagemCancelada.motivoCancelamento}'
+                        : 'A viagem foi cancelada pelo motorista.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return VangoCard(
       color: AppColors.accentSoft,
@@ -229,6 +439,18 @@ class _AvisoChegadaCard extends StatelessWidget {
   }
 }
 
+/// Explica ao aluno qual estado bloqueia a alteração de presença.
+String _motivoBloqueio(Chamada? chamada, Viagem? viagem) {
+  if (chamada == null) return 'Respostas bloqueadas: não há chamada aberta.';
+  if (viagem?.status == StatusViagem.emAndamento) {
+    return 'Respostas bloqueadas: a viagem já começou.';
+  }
+  if (chamada.cancelada)
+    return 'Respostas bloqueadas: a chamada foi cancelada.';
+  if (!chamada.aberta) return 'Respostas bloqueadas: a chamada foi encerrada.';
+  return 'Respostas indisponíveis no momento.';
+}
+
 class _ChamadaAmanhaCard extends StatelessWidget {
   const _ChamadaAmanhaCard({required this.store, required this.usuario});
 
@@ -264,11 +486,7 @@ class _ChamadaAmanhaCard extends StatelessWidget {
                 ),
               ),
               if (chamada != null)
-                StatusChip(
-                  label: chamada.status.label,
-                  tone: chamada.aberta ? VangoTone.success : VangoTone.neutral,
-                  compact: true,
-                ),
+                StatusChip.chamada(chamada.status, compact: true),
             ],
           ),
           const SizedBox(height: 4),
@@ -290,6 +508,37 @@ class _ChamadaAmanhaCard extends StatelessWidget {
             const Text(
               'Aguarde o motorista abrir a chamada do próximo dia.',
               style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ] else if (chamada.status == StatusChamada.cancelada) ...[
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.errorSoft,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.cancel_outlined,
+                    size: 18,
+                    color: AppColors.error,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      chamada.motivoCancelamento != null &&
+                              chamada.motivoCancelamento!.isNotEmpty
+                          ? 'A chamada de amanhã foi cancelada pelo motorista.\nMotivo: ${chamada.motivoCancelamento}'
+                          : 'A chamada de amanhã foi cancelada pelo motorista.',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ] else ...[
             Row(
@@ -333,18 +582,18 @@ class _ChamadaAmanhaCard extends StatelessWidget {
                   color: AppColors.warningSoft,
                   borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.lock_clock_outlined,
                       size: 18,
                       color: AppColors.warning,
                     ),
-                    SizedBox(width: 6),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Respostas bloqueadas: a chamada foi encerrada.',
-                        style: TextStyle(
+                        _motivoBloqueio(chamada, store.viagemAtual),
+                        style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.warning,
                           fontWeight: FontWeight.w600,
@@ -710,12 +959,16 @@ class _HorariosCard extends StatelessWidget {
 
 class _MenuAluno extends StatelessWidget {
   const _MenuAluno({
+    required this.aprovado,
+    required this.onPerfil,
     required this.onQuemVaiHoje,
     required this.onPadrao,
     required this.onNotificacoes,
     required this.onSair,
   });
 
+  final bool aprovado;
+  final VoidCallback onPerfil;
   final VoidCallback onQuemVaiHoje;
   final VoidCallback onPadrao;
   final VoidCallback onNotificacoes;
@@ -728,25 +981,34 @@ class _MenuAluno extends StatelessWidget {
       child: Column(
         children: [
           _ItemMenu(
-            icone: Icons.groups_2_outlined,
-            titulo: 'Quem vai hoje',
-            subtitulo: 'Confirmados para ida e volta',
-            onTap: onQuemVaiHoje,
+            icone: Icons.person_outline_rounded,
+            titulo: 'Meu perfil',
+            subtitulo: 'Seus dados e senha',
+            onTap: onPerfil,
           ),
-          const Divider(height: 1, indent: AppSpacing.md),
-          _ItemMenu(
-            icone: Icons.calendar_month_outlined,
-            titulo: 'Meu padrão semanal',
-            subtitulo: 'Dias e horários fixos',
-            onTap: onPadrao,
-          ),
-          const Divider(height: 1, indent: AppSpacing.md),
-          _ItemMenu(
-            icone: Icons.notifications_none_rounded,
-            titulo: 'Prévia de notificações',
-            subtitulo: 'Chamada aberta e lembrete',
-            onTap: onNotificacoes,
-          ),
+          if (aprovado) ...[
+            const Divider(height: 1, indent: AppSpacing.md),
+            _ItemMenu(
+              icone: Icons.groups_2_outlined,
+              titulo: 'Quem vai hoje',
+              subtitulo: 'Confirmados para ida e volta',
+              onTap: onQuemVaiHoje,
+            ),
+            const Divider(height: 1, indent: AppSpacing.md),
+            _ItemMenu(
+              icone: Icons.calendar_month_outlined,
+              titulo: 'Meu padrão semanal',
+              subtitulo: 'Dias e horários fixos',
+              onTap: onPadrao,
+            ),
+            const Divider(height: 1, indent: AppSpacing.md),
+            _ItemMenu(
+              icone: Icons.notifications_none_rounded,
+              titulo: 'Prévia de notificações',
+              subtitulo: 'Chamada aberta e lembrete',
+              onTap: onNotificacoes,
+            ),
+          ],
           const Divider(height: 1, indent: AppSpacing.md),
           _ItemMenu(
             icone: Icons.logout_rounded,
@@ -778,84 +1040,32 @@ class _ItemMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cor = destrutivo ? AppColors.error : AppColors.text;
-    return ListTile(
-      onTap: onTap,
-      leading: Icon(
-        icone,
-        color: destrutivo ? AppColors.error : AppColors.primary,
-      ),
-      title: Text(
-        titulo,
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: cor),
-      ),
-      subtitle: subtitulo == null
-          ? null
-          : Text(
-              subtitulo!,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
-    );
-  }
-}
-
-class _NotificacaoDemo extends StatelessWidget {
-  const _NotificacaoDemo({
-    required this.titulo,
-    required this.texto,
-    required this.hora,
-    required this.onTap,
-  });
-
-  final String titulo;
-  final String texto;
-  final String hora;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return VangoCard(
-      onTap: onTap,
-      color: AppColors.background,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.notifications_active, color: AppColors.primary),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        titulo,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.text,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      hora,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  texto,
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                ),
-              ],
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(
+          icone,
+          color: destrutivo ? AppColors.error : AppColors.primary,
+        ),
+        title: Text(
+          titulo,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: cor,
           ),
-        ],
+        ),
+        subtitle: subtitulo == null
+            ? null
+            : Text(
+                subtitulo!,
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+        trailing: const Icon(
+          Icons.chevron_right_rounded,
+          color: AppColors.muted,
+        ),
       ),
     );
   }

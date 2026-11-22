@@ -30,8 +30,9 @@ void main() {
 
     test('documento antigo sem ativo usa apenas status', () {
       final ativo = situacaoAtivacaoDe(<String, dynamic>{'status': 'ativo'});
-      final pendente =
-          situacaoAtivacaoDe(<String, dynamic>{'status': 'pendente'});
+      final pendente = situacaoAtivacaoDe(<String, dynamic>{
+        'status': 'pendente',
+      });
 
       expect(ativo.podeAcessar, isTrue);
       expect(pendente.podeAcessar, isFalse);
@@ -142,10 +143,7 @@ void main() {
     });
 
     test('somente offline cita conexão', () {
-      expect(
-        LoginResultado.offline.mensagem.toLowerCase(),
-        contains('conex'),
-      );
+      expect(LoginResultado.offline.mensagem.toLowerCase(), contains('conex'));
     });
   });
 

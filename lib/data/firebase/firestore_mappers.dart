@@ -6,11 +6,9 @@ import '../../models/presenca.dart';
 import '../../models/usuario.dart';
 import '../../models/viagem.dart';
 
-/// Grupo padrão do sistema (pode ser configurado para qualquer rota).
-///
-/// Pode ser sobrescrito por perfil/documento no Firestore. O script
-/// `tool/seed_firestore.js` cria o grupo com este mesmo ID.
-const String kGrupoIdPadrao = 'grupo-capao-itape';
+/// Nenhum grupo é implícito: documentos sem `grupoId` não são atribuídos a uma
+/// van legada. Esses registros são ignorados até serem corrigidos no Firestore.
+const String kGrupoIdPadrao = '';
 
 DateTime? _data(Object? valor) {
   if (valor == null) return null;
@@ -72,9 +70,11 @@ class SituacaoAtivacao {
 /// * valores contraditórios ou com tipo inválido bloqueiam o acesso.
 SituacaoAtivacao situacaoAtivacaoDe(Map<String, dynamic> dados) {
   final statusBruto = dados['status'];
-  final statusNormalizado =
-      statusBruto is String ? statusBruto.trim().toLowerCase() : null;
-  final statusValido = statusNormalizado != null &&
+  final statusNormalizado = statusBruto is String
+      ? statusBruto.trim().toLowerCase()
+      : null;
+  final statusValido =
+      statusNormalizado != null &&
       StatusConta.values.any((valor) => valor.name == statusNormalizado);
   var status = enumDe(StatusConta.values, statusBruto, StatusConta.pendente);
   final ativoBruto = dados['ativo'];
@@ -89,21 +89,13 @@ SituacaoAtivacao situacaoAtivacaoDe(Map<String, dynamic> dados) {
 
   if (ativoBruto is! bool) {
     // Falha fechada: tipo inesperado não pode habilitar acesso.
-    return SituacaoAtivacao(
-      ativo: false,
-      status: status,
-      conflito: true,
-    );
+    return SituacaoAtivacao(ativo: false, status: status, conflito: true);
   }
 
   if (!statusValido) {
     // Documento sem `status` reconhecido: o booleano passa a ser a fonte.
     status = ativoBruto ? StatusConta.ativo : StatusConta.desativado;
-    return SituacaoAtivacao(
-      ativo: ativoBruto,
-      status: status,
-      conflito: false,
-    );
+    return SituacaoAtivacao(ativo: ativoBruto, status: status, conflito: false);
   }
 
   final conflito = (status == StatusConta.ativo) != ativoBruto;
@@ -125,8 +117,7 @@ Usuario usuarioFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     email: (data['email'] as String?) ?? '',
     perfil: enumDe(PerfilUsuario.values, data['perfil'], PerfilUsuario.aluno),
     status: situacao.status,
-    ativoFirestore:
-        data.containsKey('ativo') ? situacao.ativo : null,
+    ativoFirestore: data.containsKey('ativo') ? situacao.ativo : null,
     conflitoAtivacao: situacao.conflito,
     telefone: data['telefone'] as String?,
     fotoUrl: data['fotoUrl'] as String?,
@@ -135,12 +126,17 @@ Usuario usuarioFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         ? null
         : enumDe(Turno.values, data['turno'], Turno.matutino),
     enderecoEmbarque: data['enderecoEmbarque'] as String?,
+    referenciaEndereco: data['referenciaEndereco'] as String?,
+    grupoId: data['grupoId'] as String?,
+    motivoRecusa: (data['motivoRecusa'] as String?)?.trim().isNotEmpty == true
+        ? data['motivoRecusa'] as String
+        : null,
     criadoEm: _data(data['criadoEm']),
   );
 }
 
-Map<String, dynamic> usuarioToMap(Usuario usuario, {required String grupoId}) {
-  return <String, dynamic>{
+Map<String, dynamic> usuarioToMap(Usuario usuario, {String? grupoId}) {
+  final mapa = <String, dynamic>{
     'nome': usuario.nome,
     'email': usuario.email.toLowerCase(),
     'perfil': usuario.perfil.name,
@@ -152,10 +148,16 @@ Map<String, dynamic> usuarioToMap(Usuario usuario, {required String grupoId}) {
     'instituicao': usuario.instituicao,
     'turno': usuario.turno?.name,
     'enderecoEmbarque': usuario.enderecoEmbarque,
-    'grupoId': grupoId,
+    'referenciaEndereco': usuario.referenciaEndereco,
     'criadoEm': _timestamp(usuario.criadoEm) ?? FieldValue.serverTimestamp(),
     'atualizadoEm': FieldValue.serverTimestamp(),
   };
+  // Aluno recém-cadastrado ainda não pertence a uma van. O campo só é gravado
+  // quando existe um vínculo real, evitando que o cliente escolha um grupo.
+  if (grupoId != null && grupoId.trim().isNotEmpty) {
+    mapa['grupoId'] = grupoId.trim();
+  }
+  return mapa;
 }
 
 // ------------------------------------------------------------------- chamada
@@ -171,6 +173,8 @@ Chamada chamadaFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     criadaEm: _data(data['criadaEm']) ?? DateTime.now(),
     abertaEm: _data(data['abertaEm']),
     encerradaEm: _data(data['encerradaEm']),
+    canceladaEm: _data(data['canceladaEm']),
+    motivoCancelamento: data['motivoCancelamento'] as String?,
   );
 }
 
@@ -181,6 +185,8 @@ Map<String, dynamic> chamadaToMap({
   required StatusChamada status,
   DateTime? abertaEm,
   DateTime? encerradaEm,
+  DateTime? canceladaEm,
+  String? motivoCancelamento,
 }) {
   return <String, dynamic>{
     'grupoId': grupoId,
@@ -190,6 +196,8 @@ Map<String, dynamic> chamadaToMap({
     'criadaEm': FieldValue.serverTimestamp(),
     'abertaEm': _timestamp(abertaEm) ?? FieldValue.serverTimestamp(),
     'encerradaEm': _timestamp(encerradaEm),
+    'canceladaEm': _timestamp(canceladaEm),
+    'motivoCancelamento': motivoCancelamento,
   };
 }
 
@@ -255,6 +263,8 @@ Viagem viagemFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     status: enumDe(StatusViagem.values, data['status'], StatusViagem.encerrada),
     iniciadaEm: _data(data['iniciadaEm']),
     encerradaEm: _data(data['encerradaEm']),
+    canceladaEm: _data(data['canceladaEm']),
+    motivoCancelamento: data['motivoCancelamento'] as String?,
     confirmacoes: confirmacoes,
   );
 }

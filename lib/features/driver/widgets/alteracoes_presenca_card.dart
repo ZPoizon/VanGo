@@ -11,7 +11,8 @@ import 'package:vango/models/viagem.dart';
 /// Lista compacta de alterações de presença recebidas em tempo real.
 ///
 /// Exibida no painel e na lista do dia do motorista. Não cria um segundo
-/// registro de confirmação: apenas apresenta o que mudou em `respostas`.
+/// registro de confirmação: apenas apresenta os eventos persistidos em
+/// `notificacoes` pela transação que alterou a resposta.
 class AlteracoesPresencaCard extends StatelessWidget {
   const AlteracoesPresencaCard({
     super.key,

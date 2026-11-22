@@ -35,6 +35,11 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
   late Turno _turno;
   bool _carregando = false;
 
+  bool get _isSolicitacaoDireta =>
+      widget.token == 'solicitacao-direta' ||
+      widget.token == 'solicitacao' ||
+      widget.token == 'convite-demo';
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +48,7 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
   }
 
   Future<void> _carregarConvite() async {
+    if (_isSolicitacaoDireta) return;
     final turno = await StoreScope.read(context).carregarConvite(widget.token);
     if (!mounted || turno == null) return;
     setState(() => _turno = turno);
@@ -73,16 +79,27 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
 
     setState(() => _carregando = true);
 
-    final resultado = await StoreScope.read(context).enviarSolicitacao(
-      nome: _nome.text,
-      email: _email.text,
-      telefone: _telefone.text,
-      instituicao: instituicao,
-      endereco: _endereco.text,
-      senha: _senha.text,
-      turno: _turno,
-      conviteToken: widget.token,
-    );
+    final store = StoreScope.read(context);
+    final resultado = _isSolicitacaoDireta
+        ? await store.cadastrarAluno(
+            nome: _nome.text,
+            email: _email.text,
+            telefone: _telefone.text,
+            instituicao: instituicao,
+            endereco: _endereco.text,
+            senha: _senha.text,
+            turno: _turno,
+          )
+        : await store.enviarSolicitacao(
+            nome: _nome.text,
+            email: _email.text,
+            telefone: _telefone.text,
+            instituicao: instituicao,
+            endereco: _endereco.text,
+            senha: _senha.text,
+            turno: _turno,
+            conviteToken: widget.token,
+          );
     if (!mounted) return;
 
     setState(() => _carregando = false);
@@ -90,13 +107,19 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
       mostrarResultado(context, resultado);
       return;
     }
-    context.go('/signup/success');
+    // A conta passa a valer imediatamente: o aluno entra na própria Home e
+    // solicita entrada na van a partir dali, sem logout.
+    context.go('/student/home');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const VangoAppBar(title: 'Criar perfil por convite'),
+      appBar: VangoAppBar(
+        title: _isSolicitacaoDireta
+            ? 'Criar conta de aluno'
+            : 'Criar perfil por convite',
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -112,8 +135,9 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
-                        'Convite: ${widget.token}. Seu cadastro ficará pendente '
-                        'até a aprovação do motorista.',
+                        _isSolicitacaoDireta
+                            ? 'Crie sua conta de aluno. Depois de criar a conta, você já acessa seu painel e pode informar o código da van do motorista.'
+                            : 'Convite: ${widget.token}. Seu cadastro ficará pendente até a aprovação do motorista.',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.primary,
@@ -213,14 +237,17 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               const Text(
-                'A senha não é armazenada no Firestore. Em produção será '
-                'gerenciada pelo Firebase Auth.',
+                'Sua conta será criada de forma segura e ativada após a validação do motorista.',
                 style: TextStyle(fontSize: 11, color: AppColors.muted),
               ),
               const SizedBox(height: AppSpacing.lg),
               VangoButton(
-                label: 'Enviar cadastro',
-                icon: Icons.send_rounded,
+                label: _isSolicitacaoDireta
+                    ? 'Criar conta de aluno'
+                    : 'Enviar solicitação',
+                icon: _isSolicitacaoDireta
+                    ? Icons.person_add_alt_1_rounded
+                    : Icons.send_rounded,
                 loading: _carregando,
                 onPressed: _enviar,
               ),

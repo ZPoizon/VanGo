@@ -26,28 +26,26 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   final _nome = TextEditingController();
   final _telefone = TextEditingController();
   final _endereco = TextEditingController();
+  final _referencia = TextEditingController();
   final _outraInstituicao = TextEditingController();
 
   String _instituicao = 'Fatec';
+  Turno _turno = Turno.matutino;
+  bool _salvando = false;
   bool _alterandoSenha = false;
   final _senhaAtual = TextEditingController();
   final _novaSenha = TextEditingController();
-  late final Usuario _usuario;
+
+  /// Dados exibidos no topo e snapshot usado como base do botão Cancelar.
+  late Usuario _usuario;
+  late Usuario _usuarioOriginal;
 
   @override
   void initState() {
     super.initState();
     _usuario = StoreScope.read(context).usuarioAtual!;
-    _nome.text = _usuario.nome;
-    _telefone.text = _usuario.telefone ?? '';
-    _endereco.text = _usuario.enderecoEmbarque ?? '';
-    final instituicao = _usuario.instituicao;
-    if (instituicao != null && DemoData.instituicoes.contains(instituicao)) {
-      _instituicao = instituicao;
-    } else if (instituicao != null && instituicao.isNotEmpty) {
-      _instituicao = 'Outra';
-      _outraInstituicao.text = instituicao;
-    }
+    _usuarioOriginal = _usuario;
+    _aplicarUsuario(_usuario);
   }
 
   @override
@@ -55,27 +53,76 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     _nome.dispose();
     _telefone.dispose();
     _endereco.dispose();
+    _referencia.dispose();
     _outraInstituicao.dispose();
     _senhaAtual.dispose();
     _novaSenha.dispose();
     super.dispose();
   }
 
+  void _aplicarUsuario(Usuario usuario) {
+    _nome.text = usuario.nome;
+    _telefone.text = usuario.telefone ?? '';
+    _endereco.text = usuario.enderecoEmbarque ?? '';
+    _referencia.text = usuario.referenciaEndereco ?? '';
+    _turno = usuario.turno ?? Turno.matutino;
+    final instituicao = usuario.instituicao;
+    if (instituicao != null && DemoData.instituicoes.contains(instituicao)) {
+      _instituicao = instituicao;
+      _outraInstituicao.clear();
+    } else if (instituicao != null && instituicao.isNotEmpty) {
+      _instituicao = 'Outra';
+      _outraInstituicao.text = instituicao;
+    } else {
+      _instituicao = 'Fatec';
+      _outraInstituicao.clear();
+    }
+  }
+
+  void _cancelar() {
+    if (_salvando) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _aplicarUsuario(_usuarioOriginal));
+    mostrarToast(context, 'Alterações descartadas.');
+  }
+
   Future<void> _salvar() async {
     FocusScope.of(context).unfocus();
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_salvando || !(_formKey.currentState?.validate() ?? false)) return;
 
     final instituicao = _instituicao == 'Outra'
         ? _outraInstituicao.text.trim()
         : _instituicao;
+    final atual = _usuarioOriginal;
+
+    // Campos opcionais não alterados não são enviados: o Firestore faz merge
+    // e os valores originais permanecem intactos.
+    setState(() => _salvando = true);
     final resultado = await StoreScope.read(context).atualizarPerfil(
       nome: _nome.text,
       telefone: _telefone.text,
-      instituicao: instituicao,
-      endereco: _endereco.text,
+      instituicao: instituicao == atual.instituicao ? null : instituicao,
+      endereco: _endereco.text == (atual.enderecoEmbarque ?? '')
+          ? null
+          : _endereco.text,
+      referencia: _referencia.text == (atual.referenciaEndereco ?? '')
+          ? null
+          : _referencia.text,
+      turno: _turno == (atual.turno ?? Turno.matutino) ? null : _turno,
     );
     if (!mounted) return;
+    setState(() => _salvando = false);
     mostrarResultado(context, resultado);
+    if (!resultado.sucesso) return;
+
+    final salvo = StoreScope.read(context).usuarioAtual;
+    if (salvo != null) {
+      setState(() {
+        _usuario = salvo;
+        _usuarioOriginal = salvo;
+        _aplicarUsuario(salvo);
+      });
+    }
   }
 
   Future<void> _salvarSenha() async {
@@ -170,11 +217,41 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 ),
               ],
               const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<Turno>(
+                initialValue: _turno,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Turno',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.schedule_outlined),
+                ),
+                items: Turno.values
+                    .map(
+                      (turno) => DropdownMenuItem<Turno>(
+                        value: turno,
+                        child: Text(turno.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _salvando
+                    ? null
+                    : (novo) {
+                        if (novo != null) setState(() => _turno = novo);
+                      },
+              ),
+              const SizedBox(height: AppSpacing.md),
               VangoTextField(
                 controller: _endereco,
                 label: 'Endereço de embarque',
                 maxLines: 2,
                 validator: validarEndereco,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              VangoTextField(
+                controller: _referencia,
+                label: 'Referência do endereço',
+                hint: 'Ex.: portão azul, ao lado da padaria',
+                maxLines: 2,
               ),
               const SizedBox(height: AppSpacing.md),
               VangoCard(
@@ -239,15 +316,24 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               VangoButton(
                 label: 'Salvar perfil',
                 icon: Icons.save_outlined,
-                onPressed: _salvar,
+                loading: _salvando,
+                onPressed: _salvando ? null : _salvar,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              VangoButton(
+                label: 'Cancelar edição',
+                icon: Icons.undo_rounded,
+                variant: VangoButtonVariant.outline,
+                onPressed: _salvando ? null : _cancelar,
               ),
               const SizedBox(height: AppSpacing.sm),
               VangoButton(
                 label: 'Sair da conta',
                 icon: Icons.logout_rounded,
                 variant: VangoButtonVariant.ghost,
-                onPressed: () {
-                  StoreScope.read(context).sair();
+                onPressed: () async {
+                  await StoreScope.read(context).sair();
+                  if (!context.mounted) return;
                   context.go('/login');
                 },
               ),

@@ -94,7 +94,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         appBar: VangoAppBar(title: 'Aluno'),
         body: EstadoView(
           titulo: 'Aluno não encontrado',
-          mensagem: 'O cadastro pode ter sido removido desta demonstração.',
+          mensagem: 'Aluno não encontrado nesta van.',
           tipo: EstadoTipo.erro,
         ),
       );

@@ -10,7 +10,8 @@ enum SentidoViagem {
 enum StatusViagem {
   agendada,
   emAndamento,
-  encerrada;
+  encerrada,
+  cancelada;
 
   String get label {
     switch (this) {
@@ -20,6 +21,8 @@ enum StatusViagem {
         return 'Em andamento';
       case StatusViagem.encerrada:
         return 'Encerrada';
+      case StatusViagem.cancelada:
+        return 'Cancelada';
     }
   }
 }
@@ -69,6 +72,8 @@ class Viagem {
     required this.status,
     this.iniciadaEm,
     this.encerradaEm,
+    this.canceladaEm,
+    this.motivoCancelamento,
     this.confirmacoes = const <ConfirmacaoViagem>[],
   });
 
@@ -80,7 +85,11 @@ class Viagem {
   final StatusViagem status;
   final DateTime? iniciadaEm;
   final DateTime? encerradaEm;
+  final DateTime? canceladaEm;
+  final String? motivoCancelamento;
   final List<ConfirmacaoViagem> confirmacoes;
+
+  bool get cancelada => status == StatusViagem.cancelada;
 
   int get totalConfirmados => confirmacoes.length;
   int get totalEmbarcados =>
@@ -91,6 +100,8 @@ class Viagem {
     StatusViagem? status,
     DateTime? iniciadaEm,
     DateTime? encerradaEm,
+    DateTime? canceladaEm,
+    String? motivoCancelamento,
     List<ConfirmacaoViagem>? confirmacoes,
   }) {
     return Viagem(
@@ -102,6 +113,8 @@ class Viagem {
       status: status ?? this.status,
       iniciadaEm: iniciadaEm ?? this.iniciadaEm,
       encerradaEm: encerradaEm ?? this.encerradaEm,
+      canceladaEm: canceladaEm ?? this.canceladaEm,
+      motivoCancelamento: motivoCancelamento ?? this.motivoCancelamento,
       confirmacoes: confirmacoes ?? this.confirmacoes,
     );
   }

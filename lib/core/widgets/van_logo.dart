@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
 class VanLogo extends StatelessWidget {
-  const VanLogo({
-    super.key,
-    this.size = 44,
-    this.usarLogoCompleta = false,
-  });
+  const VanLogo({super.key, this.size = 44, this.usarLogoCompleta = false});
 
   final double size;
   final bool usarLogoCompleta;

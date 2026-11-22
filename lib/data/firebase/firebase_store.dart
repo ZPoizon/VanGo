@@ -57,7 +57,7 @@ class FirebaseStore extends VanGoStore {
       <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _respostasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-      _notificacoesRespostaSub;
+  _notificacoesRespostaSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _padraoSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _perfilSub;
 
@@ -66,8 +66,7 @@ class FirebaseStore extends VanGoStore {
   final List<NotificacaoResposta> _notificacoesResposta =
       <NotificacaoResposta>[];
   final List<QueryDocumentSnapshot<Map<String, dynamic>>>
-      _notificacoesRespostaDocs =
-      <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  _notificacoesRespostaDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
   List<Viagem> _historico = <Viagem>[];
   Chamada? _chamada;
   Viagem? _viagemAtual;
@@ -159,7 +158,9 @@ class FirebaseStore extends VanGoStore {
 
       await _aplicarSessao(_auth.currentUser);
     } catch (error) {
-      debugPrint('[Sessão] falha ao inicializar: ${_descreverErroSeguro(error)}');
+      debugPrint(
+        '[Sessão] falha ao inicializar: ${_descreverErroSeguro(error)}',
+      );
       _erro = _descreverErroCarregamento(error);
       _notificar();
     } finally {
@@ -440,7 +441,8 @@ class FirebaseStore extends VanGoStore {
     } catch (error) {
       debugPrint('[Firestore] falha ao carregar sessão: $error');
       await _limparSessao();
-      _erro = 'Não foi possível carregar os dados do servidor. Tente novamente.';
+      _erro =
+          'Não foi possível carregar os dados do servidor. Tente novamente.';
       _notificar();
       return _SessaoResultado.falha;
     }
@@ -736,15 +738,12 @@ class FirebaseStore extends VanGoStore {
         .collection('notificacoes')
         .where('grupoId', isEqualTo: grupo)
         .snapshots()
-        .listen(
-      (snapshot) {
-        _notificacoesRespostaDocs
-          ..clear()
-          ..addAll(snapshot.docs);
-        _reconstruirNotificacoesResposta();
-      },
-      onError: (Object e) => _aoFalharStream(e, 'notificacoes:list'),
-    );
+        .listen((snapshot) {
+          _notificacoesRespostaDocs
+            ..clear()
+            ..addAll(snapshot.docs);
+          _reconstruirNotificacoesResposta();
+        }, onError: (Object e) => _aoFalharStream(e, 'notificacoes:list'));
   }
 
   /// Projeta os documentos persistidos no modelo já usado pela UI. O nome vem
@@ -759,8 +758,14 @@ class FirebaseStore extends VanGoStore {
       final alunoId = dados['alunoId'] as String?;
       final chamadaId = dados['chamadaId'] as String?;
       final sentido = enumDeOuNulo(SentidoViagem.values, dados['sentido']);
-      final anterior = enumDeOuNulo(RespostaSentido.values, dados['respostaAnterior']);
-      final atual = enumDeOuNulo(RespostaSentido.values, dados['respostaAtual']);
+      final anterior = enumDeOuNulo(
+        RespostaSentido.values,
+        dados['respostaAnterior'],
+      );
+      final atual = enumDeOuNulo(
+        RespostaSentido.values,
+        dados['respostaAtual'],
+      );
       final criadoEm = (data['criadoEm'] as Timestamp?)?.toDate();
       if (alunoId == null ||
           chamadaId == null ||
@@ -798,7 +803,9 @@ class FirebaseStore extends VanGoStore {
   }
 
   void _aoFalharStream(Object error, String origem) {
-    debugPrint('[Firestore] erro em listener ($origem): ${_descreverErroSeguro(error)}');
+    debugPrint(
+      '[Firestore] erro em listener ($origem): ${_descreverErroSeguro(error)}',
+    );
     _erro = _descreverErroCarregamento(error);
     _notificar();
   }
@@ -925,7 +932,9 @@ class FirebaseStore extends VanGoStore {
   }) async {
     final grupo = _grupoOperacional;
     if (grupo.isEmpty) {
-      return const OperacaoResultado.erro('Selecione uma van antes de continuar.');
+      return const OperacaoResultado.erro(
+        'Selecione uma van antes de continuar.',
+      );
     }
     final motivoLimpo = motivo?.trim();
     try {
@@ -997,7 +1006,8 @@ class FirebaseStore extends VanGoStore {
     }
     final chamada = _chamada;
     if (chamada == null) return 'Nenhuma chamada aberta.';
-    if (!chamada.aberta) return 'Respostas bloqueadas: a chamada foi encerrada.';
+    if (!chamada.aberta)
+      return 'Respostas bloqueadas: a chamada foi encerrada.';
     return null;
   }
 
@@ -1195,9 +1205,9 @@ class FirebaseStore extends VanGoStore {
             return;
           }
           transaction.set(
-            _db.collection('notificacoes').doc(
-              '${chamadaId}_${usuario.id}_${sentido.name}_v$novaVersao',
-            ),
+            _db
+                .collection('notificacoes')
+                .doc('${chamadaId}_${usuario.id}_${sentido.name}_v$novaVersao'),
             <String, dynamic>{
               'grupoId': grupoId,
               'titulo': 'Presença alterada',
@@ -1217,7 +1227,11 @@ class FirebaseStore extends VanGoStore {
         }
 
         registrar(SentidoViagem.ida, gravada.ida, novaIda ?? gravada.ida);
-        registrar(SentidoViagem.volta, gravada.volta, novaVolta ?? gravada.volta);
+        registrar(
+          SentidoViagem.volta,
+          gravada.volta,
+          novaVolta ?? gravada.volta,
+        );
       });
 
       if (!houveAlteracao) {
@@ -1627,7 +1641,9 @@ class FirebaseStore extends VanGoStore {
       if (chamada != null && chamada.aberta) {
         final configuracao = novoPadrao[chamada.dataServico.weekday];
         final resposta = respostaDe(usuario.id);
-        if (configuracao != null && !resposta.respondido && !respostaBloqueada) {
+        if (configuracao != null &&
+            !resposta.respondido &&
+            !respostaBloqueada) {
           await responderChamada(
             ida: configuracao.vaiIda,
             volta: configuracao.vaiVolta,
@@ -1999,7 +2015,9 @@ class FirebaseStore extends VanGoStore {
             _ignorarAuth = false;
             return OperacaoResultado.erro(_descreverErroCarregamento(error));
           }
-          debugPrint('[Firestore] convite inválido: ${_descreverErroSeguro(error)}');
+          debugPrint(
+            '[Firestore] convite inválido: ${_descreverErroSeguro(error)}',
+          );
         }
       }
 
@@ -2117,9 +2135,9 @@ class FirebaseStore extends VanGoStore {
         ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
       final preferido = await SelecaoGrupoStore.carregar();
       final escolhido = grupos.cast<GrupoVan?>().firstWhere(
-            (grupo) => grupo?.id == preferido,
-            orElse: () => null,
-          );
+        (grupo) => grupo?.id == preferido,
+        orElse: () => null,
+      );
       final selecaoAnterior = _grupoSelecionadoId;
       final selecaoAtual =
           (escolhido ?? (grupos.isEmpty ? null : grupos.first))?.id;
@@ -2152,8 +2170,7 @@ class FirebaseStore extends VanGoStore {
       return snapshot.docs
           .map(usuarioFromDoc)
           .where(
-            (aluno) =>
-                aluno.perfil == PerfilUsuario.aluno && aluno.podeAcessar,
+            (aluno) => aluno.perfil == PerfilUsuario.aluno && aluno.podeAcessar,
           )
           .length;
     } catch (error) {
@@ -2166,11 +2183,13 @@ class FirebaseStore extends VanGoStore {
   @override
   Future<OperacaoResultado> selecionarGrupo(String grupoId) async {
     final grupo = _grupos.cast<GrupoVan?>().firstWhere(
-          (item) => item?.id == grupoId,
-          orElse: () => null,
-        );
+      (item) => item?.id == grupoId,
+      orElse: () => null,
+    );
     if (grupo == null) {
-      return const OperacaoResultado.erro('Van não encontrada para este motorista.');
+      return const OperacaoResultado.erro(
+        'Van não encontrada para este motorista.',
+      );
     }
     if (_grupoSelecionadoId == grupoId) {
       return const OperacaoResultado.ok('Van já selecionada.');
@@ -2196,7 +2215,9 @@ class FirebaseStore extends VanGoStore {
   }) async {
     final usuario = _usuarioAtual;
     if (usuario == null || usuario.perfil != PerfilUsuario.motorista) {
-      return const OperacaoResultado.erro('Apenas motoristas podem criar vans.');
+      return const OperacaoResultado.erro(
+        'Apenas motoristas podem criar vans.',
+      );
     }
     final nomeLimpo = nome.trim();
     if (nomeLimpo.length < 3) {
@@ -2213,18 +2234,23 @@ class FirebaseStore extends VanGoStore {
       final expiraEm = Timestamp.fromDate(
         DateTime.now().add(const Duration(minutes: 10)),
       );
-      final grupoRef = _db.collection('grupos').doc('grupo_${usuario.id}_$codigo');
+      final grupoRef = _db
+          .collection('grupos')
+          .doc('grupo_${usuario.id}_$codigo');
 
       // Transação: a criação do documento de código é atômica. Se outro
       // dispositivo reservar o mesmo código, a transação é repetida com outro.
       String codigoFinal = codigo;
       DocumentReference<Map<String, dynamic>> grupoFinal = grupoRef;
-      DocumentReference<Map<String, dynamic>> codigoFinalRef =
-          _db.collection('codigos').doc(codigoFinal);
+      DocumentReference<Map<String, dynamic>> codigoFinalRef = _db
+          .collection('codigos')
+          .doc(codigoFinal);
       for (var tentativa = 0; tentativa < 8; tentativa++) {
         try {
           await _db.runTransaction((txn) async {
-            final reserva = await txn.get(_db.collection('codigos').doc(codigoFinal));
+            final reserva = await txn.get(
+              _db.collection('codigos').doc(codigoFinal),
+            );
             if (reserva.exists) {
               throw FirebaseException(
                 plugin: 'cloud_firestore',
@@ -2232,18 +2258,23 @@ class FirebaseStore extends VanGoStore {
                 message: 'Código já reservado',
               );
             }
-            txn.set(_db.collection('codigos').doc(codigoFinal), <String, dynamic>{
-              'reservadoEm': FieldValue.serverTimestamp(),
-              'expiraEm': expiraEm,
-              'reservadoPor': usuario.id,
-            });
+            txn.set(
+              _db.collection('codigos').doc(codigoFinal),
+              <String, dynamic>{
+                'reservadoEm': FieldValue.serverTimestamp(),
+                'expiraEm': expiraEm,
+                'reservadoPor': usuario.id,
+              },
+            );
           });
           break;
         } on FirebaseException catch (error) {
           if (error.code != 'already-exists' || tentativa == 7) rethrow;
           _lembrarCodigo(codigoFinal);
           codigoFinal = gerarCodigoGrupo(usados: usados..add(codigoFinal));
-          grupoFinal = _db.collection('grupos').doc('grupo_${usuario.id}_$codigoFinal');
+          grupoFinal = _db
+              .collection('grupos')
+              .doc('grupo_${usuario.id}_$codigoFinal');
           codigoFinalRef = _db.collection('codigos').doc(codigoFinal);
         }
       }
@@ -2253,18 +2284,21 @@ class FirebaseStore extends VanGoStore {
         // porque as regras leem o grupo com get() — ele ainda não existe no
         // estado anterior de um writeBatch.
         await _db.runTransaction((txn) async {
-          txn.set(grupoFinal, grupoToMap(
-            id: grupoFinal.id,
-            nome: nomeLimpo,
-            motoristaId: usuario.id,
-            codigo: codigoFinal,
-            cidadeOrigem: cidadeOrigem,
-            cidadeDestino: cidadeDestino,
-            periodoEnum: periodo,
-            periodoPersonalizado: periodoPersonalizado,
-            horarioSaida: horarioSaida,
-            observacoes: observacoes,
-          ));
+          txn.set(
+            grupoFinal,
+            grupoToMap(
+              id: grupoFinal.id,
+              nome: nomeLimpo,
+              motoristaId: usuario.id,
+              codigo: codigoFinal,
+              cidadeOrigem: cidadeOrigem,
+              cidadeDestino: cidadeDestino,
+              periodoEnum: periodo,
+              periodoPersonalizado: periodoPersonalizado,
+              horarioSaida: horarioSaida,
+              observacoes: observacoes,
+            ),
+          );
           txn.update(codigoFinalRef, <String, dynamic>{
             'grupoId': grupoFinal.id,
             'motoristaId': usuario.id,
@@ -2374,12 +2408,15 @@ class FirebaseStore extends VanGoStore {
       // Solicitação e vínculo do perfil são gravados no mesmo lote atômico:
       // nunca sobra uma pendente sem o aluno realmente vinculado.
       final lote = _db.batch();
-      lote.set(_db.collection('solicitacoes').doc(usuario.id), <String, dynamic>{
-        'grupoId': grupoId,
-        'alunoId': usuario.id,
-        'status': 'pendente',
-        'criadoEm': FieldValue.serverTimestamp(),
-      });
+      lote.set(
+        _db.collection('solicitacoes').doc(usuario.id),
+        <String, dynamic>{
+          'grupoId': grupoId,
+          'alunoId': usuario.id,
+          'status': 'pendente',
+          'criadoEm': FieldValue.serverTimestamp(),
+        },
+      );
       lote.set(_db.collection('usuarios').doc(usuario.id), <String, dynamic>{
         'grupoId': grupoId,
         'status': StatusConta.pendente.name,
@@ -2399,9 +2436,9 @@ class FirebaseStore extends VanGoStore {
   @override
   Future<OperacaoResultado> gerarNovoCodigoGrupo(String grupoId) async {
     final grupo = _grupos.cast<GrupoVan?>().firstWhere(
-          (item) => item?.id == grupoId,
-          orElse: () => null,
-        );
+      (item) => item?.id == grupoId,
+      orElse: () => null,
+    );
     if (grupo == null) {
       return const OperacaoResultado.erro('Van não encontrada.');
     }
@@ -2579,10 +2616,10 @@ class FirebaseStore extends VanGoStore {
     }
 
     try {
-      await _db.collection('usuarios').doc(usuario.id).set(
-        dados,
-        SetOptions(merge: true),
-      );
+      await _db
+          .collection('usuarios')
+          .doc(usuario.id)
+          .set(dados, SetOptions(merge: true));
 
       _usuarioAtual = usuario.copyWith(
         nome: nomeLimpo,

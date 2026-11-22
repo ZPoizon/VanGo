@@ -1,8 +1,18 @@
 enum StatusChamada {
   aberta,
-  encerrada;
+  encerrada,
+  cancelada;
 
-  String get label => this == StatusChamada.aberta ? 'Aberta' : 'Encerrada';
+  String get label {
+    switch (this) {
+      case StatusChamada.aberta:
+        return 'Aberta';
+      case StatusChamada.encerrada:
+        return 'Encerrada';
+      case StatusChamada.cancelada:
+        return 'Cancelada';
+    }
+  }
 }
 
 class Chamada {
@@ -15,6 +25,8 @@ class Chamada {
     required this.criadaEm,
     this.abertaEm,
     this.encerradaEm,
+    this.canceladaEm,
+    this.motivoCancelamento,
   });
 
   final String id;
@@ -25,13 +37,18 @@ class Chamada {
   final DateTime criadaEm;
   final DateTime? abertaEm;
   final DateTime? encerradaEm;
+  final DateTime? canceladaEm;
+  final String? motivoCancelamento;
 
   bool get aberta => status == StatusChamada.aberta;
+  bool get cancelada => status == StatusChamada.cancelada;
 
   Chamada copyWith({
     StatusChamada? status,
     DateTime? abertaEm,
     DateTime? encerradaEm,
+    DateTime? canceladaEm,
+    String? motivoCancelamento,
   }) {
     return Chamada(
       id: id,
@@ -42,6 +59,8 @@ class Chamada {
       criadaEm: criadaEm,
       abertaEm: abertaEm ?? this.abertaEm,
       encerradaEm: encerradaEm ?? this.encerradaEm,
+      canceladaEm: canceladaEm ?? this.canceladaEm,
+      motivoCancelamento: motivoCancelamento ?? this.motivoCancelamento,
     );
   }
 }

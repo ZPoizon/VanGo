@@ -10,6 +10,7 @@ import 'package:vango/core/widgets/student_list_tile.dart';
 import 'package:vango/core/widgets/vango_app_bar.dart';
 import 'package:vango/core/widgets/vango_card.dart';
 import 'package:vango/features/driver/widgets/alteracoes_presenca_card.dart';
+import 'package:vango/models/chamada.dart';
 import 'package:vango/models/presenca.dart';
 
 class DailyListScreen extends StatelessWidget {
@@ -58,21 +59,26 @@ class DailyListScreen extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              StatusChip(
-                                label: chamada.status.label,
-                                tone: chamada.aberta
-                                    ? VangoTone.success
-                                    : VangoTone.neutral,
-                                compact: true,
-                              ),
+                              StatusChip.chamada(chamada.status, compact: true),
                             ],
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
-                            '$totalRespostas de $total aluno(s) responderam',
-                            style: const TextStyle(
+                            chamada.status == StatusChamada.cancelada
+                                ? (chamada.motivoCancelamento != null &&
+                                          chamada.motivoCancelamento!.isNotEmpty
+                                      ? 'Chamada cancelada. Motivo: ${chamada.motivoCancelamento}'
+                                      : 'A chamada foi cancelada pelo motorista.')
+                                : '$totalRespostas de $total aluno(s) responderam',
+                            style: TextStyle(
                               fontSize: 13,
-                              color: AppColors.muted,
+                              color: chamada.status == StatusChamada.cancelada
+                                  ? AppColors.error
+                                  : AppColors.muted,
+                              fontWeight:
+                                  chamada.status == StatusChamada.cancelada
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                         ],

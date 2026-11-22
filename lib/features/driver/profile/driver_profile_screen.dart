@@ -27,15 +27,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   final _senhaAtual = TextEditingController();
   final _novaSenha = TextEditingController();
 
-  late final Usuario _usuario;
+  late Usuario _usuario;
+  late Usuario _usuarioOriginal;
+  bool _salvando = false;
   bool _alterandoSenha = false;
 
   @override
   void initState() {
     super.initState();
     _usuario = StoreScope.read(context).usuarioAtual!;
-    _nome.text = _usuario.nome;
-    _telefone.text = _usuario.telefone ?? '';
+    _usuarioOriginal = _usuario;
+    _aplicarUsuario(_usuario);
   }
 
   @override
@@ -47,13 +49,39 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     super.dispose();
   }
 
+  void _aplicarUsuario(Usuario usuario) {
+    _nome.text = usuario.nome;
+    _telefone.text = usuario.telefone ?? '';
+  }
+
+  void _cancelar() {
+    if (_salvando) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _aplicarUsuario(_usuarioOriginal));
+    mostrarToast(context, 'Alterações descartadas.');
+  }
+
   Future<void> _salvar() async {
     FocusScope.of(context).unfocus();
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_salvando || !(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _salvando = true);
+    // Nenhum campo de instituição/endereço/turno/van é enviado pelo motorista.
     final resultado = await StoreScope.read(context)
         .atualizarPerfil(nome: _nome.text, telefone: _telefone.text);
     if (!mounted) return;
+    setState(() => _salvando = false);
     mostrarResultado(context, resultado);
+    if (!resultado.sucesso) return;
+
+    final salvo = StoreScope.read(context).usuarioAtual;
+    if (salvo != null) {
+      setState(() {
+        _usuario = salvo;
+        _usuarioOriginal = salvo;
+        _aplicarUsuario(salvo);
+      });
+    }
   }
 
   Future<void> _salvarSenha() async {
@@ -198,7 +226,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               VangoButton(
                 label: 'Salvar perfil',
                 icon: Icons.save_outlined,
-                onPressed: _salvar,
+                loading: _salvando,
+                onPressed: _salvando ? null : _salvar,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              VangoButton(
+                label: 'Cancelar edição',
+                icon: Icons.undo_rounded,
+                variant: VangoButtonVariant.outline,
+                onPressed: _salvando ? null : _cancelar,
               ),
               const SizedBox(height: AppSpacing.sm),
               VangoButton(
@@ -209,13 +245,6 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   StoreScope.read(context).sair();
                   context.go('/login');
                 },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              const Text(
-                'TODO de produto: política de alteração de foto, nome e '
-                'e-mail ainda não definida nos RFs.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: AppColors.muted),
               ),
             ],
           ),

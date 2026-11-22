@@ -15,7 +15,11 @@ enum LoginResultado {
   semPerfil,
   dadosInconsistentes,
   permissoesNegadas,
-  emailNaoVerificado;
+  emailNaoVerificado,
+  sessaoExpirada,
+  configuracaoInvalida,
+  dadosInvalidos,
+  erroInterno;
 
   String get mensagem {
     switch (this) {
@@ -38,6 +42,17 @@ enum LoginResultado {
             'Procure o motorista do grupo.';
       case LoginResultado.emailNaoVerificado:
         return 'Confirme seu e-mail antes de entrar.';
+      case LoginResultado.sessaoExpirada:
+        return 'Sua sessão expirou. Entre novamente para continuar.';
+      case LoginResultado.configuracaoInvalida:
+        return 'O servidor não está pronto para esta consulta. '
+            'Falta um índice no Firestore ou a operação está indisponível. '
+            'Contate o administrador.';
+      case LoginResultado.dadosInvalidos:
+        return 'O servidor recusou os dados enviados. Confira as informações '
+            'e tente novamente.';
+      case LoginResultado.erroInterno:
+        return 'Não foi possível concluir a operação. Tente novamente.';
     }
   }
 }

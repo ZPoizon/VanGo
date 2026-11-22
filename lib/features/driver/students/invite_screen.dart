@@ -33,9 +33,15 @@ class _InviteScreenState extends State<InviteScreen> {
   }
 
   Future<void> _gerar() async {
-    await StoreScope.read(context).gerarConvite(_turno);
+    final token = await StoreScope.read(context).gerarConvite(_turno);
     if (!mounted) return;
-    mostrarToast(context, 'Novo link de convite gerado.');
+    mostrarToast(
+      context,
+      token == null
+          ? 'Não foi possível gerar o link de convite. Tente novamente.'
+          : 'Novo link de convite gerado.',
+      erro: token == null,
+    );
     setState(() {});
   }
 

@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "pretest": "node -e \"require('fs').copyFileSync('../../firestore.rules.confirmacao.proposto', 'firestore.rules')\"",
     "test": "firebase emulators:exec --only firestore --project vango-rules-test --config firebase.json \"node test.mjs\""
   },
   "devDependencies": {

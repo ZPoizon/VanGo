@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../models/chamada.dart';
 import '../../models/presenca.dart';
+import '../../models/viagem.dart';
 
 enum VangoTone { success, warning, error, info, accent, neutral, purple }
 
@@ -61,6 +63,30 @@ VangoTone toneDaPresenca(StatusPresenca status) {
   }
 }
 
+VangoTone toneDaChamada(StatusChamada status) {
+  switch (status) {
+    case StatusChamada.aberta:
+      return VangoTone.success;
+    case StatusChamada.encerrada:
+      return VangoTone.neutral;
+    case StatusChamada.cancelada:
+      return VangoTone.error;
+  }
+}
+
+VangoTone toneDaViagem(StatusViagem status) {
+  switch (status) {
+    case StatusViagem.agendada:
+      return VangoTone.info;
+    case StatusViagem.emAndamento:
+      return VangoTone.accent;
+    case StatusViagem.encerrada:
+      return VangoTone.success;
+    case StatusViagem.cancelada:
+      return VangoTone.error;
+  }
+}
+
 class StatusChip extends StatelessWidget {
   const StatusChip({
     super.key,
@@ -77,6 +103,22 @@ class StatusChip extends StatelessWidget {
     this.icon,
   }) : label = status.label,
        tone = toneDaPresenca(status);
+
+  StatusChip.chamada(
+    StatusChamada status, {
+    super.key,
+    this.compact = false,
+    this.icon,
+  }) : label = status.label,
+       tone = toneDaChamada(status);
+
+  StatusChip.viagem(
+    StatusViagem status, {
+    super.key,
+    this.compact = false,
+    this.icon,
+  }) : label = status.label,
+       tone = toneDaViagem(status);
 
   final String label;
   final VangoTone tone;

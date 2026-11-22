@@ -110,9 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  hintText: 'seu@email.com',
-                ),
+                decoration: const InputDecoration(hintText: 'seu@email.com'),
               ),
 
               const SizedBox(height: 20),
@@ -134,7 +132,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   hintText: 'Sua senha',
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _mostrarSenha ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      _mostrarSenha
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                       color: AppTheme.textSecondary,
                     ),
                     onPressed: () {
@@ -161,10 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 28),
 
               // Botão Entrar
-              BotaoPrimario(
-                texto: 'Entrar',
-                onPressed: _fazerLogin,
-              ),
+              BotaoPrimario(texto: 'Entrar', onPressed: _fazerLogin),
 
               const SizedBox(height: 36),
 
@@ -181,7 +178,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.touch_app_outlined, size: 18, color: AppTheme.textSecondary),
+                        Icon(
+                          Icons.touch_app_outlined,
+                          size: 18,
+                          color: AppTheme.textSecondary,
+                        ),
                         SizedBox(width: 6),
                         Text(
                           'Acesso rápido para demonstração:',
@@ -200,7 +201,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppTheme.primaryDark,
-                              side: const BorderSide(color: AppTheme.borderLight),
+                              side: const BorderSide(
+                                color: AppTheme.borderLight,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
@@ -216,13 +219,18 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppTheme.primaryDark,
-                              side: const BorderSide(color: AppTheme.borderLight),
+                              side: const BorderSide(
+                                color: AppTheme.borderLight,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            icon: const Icon(Icons.directions_bus_outlined, size: 18),
+                            icon: const Icon(
+                              Icons.directions_bus_outlined,
+                              size: 18,
+                            ),
                             label: const Text('Motorista'),
                             onPressed: _loginComoMotorista,
                           ),

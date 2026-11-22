@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import '../core/resultado.dart';
+import '../core/selecao_grupo_store.dart';
 import '../core/store.dart';
 import '../models/chamada.dart';
+import '../models/grupo.dart';
 import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
@@ -21,6 +24,69 @@ class DemoStore extends VanGoStore {
       _historico = DemoData.historico();
 
   factory DemoStore.demo() => DemoStore._();
+
+  final List<GrupoVan> _grupos = <GrupoVan>[
+    GrupoVan(
+      id: DemoData.grupoId,
+      nome: 'Van do Roberto (Capão Bonito → Itapetininga)',
+      motoristaId: DemoData.motoristaId,
+      codigo: '123456',
+      cidadeOrigem: 'Capão Bonito',
+      cidadeDestino: 'Itapetininga',
+      periodoEnum: PeriodoVan.manha,
+    ),
+  ];
+
+  String? _grupoSelecionadoId;
+  final List<Usuario> _solicitacoes = <Usuario>[];
+
+  @override
+  List<GrupoVan> get meusGrupos {
+    final motorista = _usuarioAtual;
+    if (motorista == null || motorista.perfil != PerfilUsuario.motorista) {
+      return const <GrupoVan>[];
+    }
+    return List.unmodifiable(
+      _grupos.where((grupo) => grupo.motoristaId == motorista.id),
+    );
+  }
+
+  @override
+  GrupoVan? get grupoSelecionado {
+    final id = _grupoSelecionadoId;
+    final motorista = _usuarioAtual;
+    if (id == null ||
+        motorista == null ||
+        motorista.perfil != PerfilUsuario.motorista) {
+      return null;
+    }
+    for (final grupo in meusGrupos) {
+      if (grupo.id == id) return grupo;
+    }
+    return null;
+  }
+
+  String get _grupoAtivoId {
+    final selecionado = grupoSelecionado;
+    if (selecionado != null) return selecionado.id;
+    final vinculado = _usuarioAtual?.grupoId?.trim();
+    if (vinculado != null && vinculado.isNotEmpty) return vinculado;
+    return _grupos.isEmpty ? '' : _grupos.first.id;
+  }
+
+  /// Estado transitório da van ativa. Ao trocar de van, nada da van anterior
+  /// pode continuar visível no painel da nova.
+  void _limparEstadoDaVan() {
+    _chamada = null;
+    _viagemAtual = null;
+    _historico.clear();
+    _respostas.clear();
+    _notificacoesResposta.clear();
+    _solicitacoes.clear();
+  }
+
+  @override
+  List<Usuario> get solicitacoesPendentes => List.unmodifiable(_solicitacoes);
 
   @override
   bool get modoDemo => true;
@@ -118,6 +184,8 @@ class DemoStore extends VanGoStore {
   @override
   Future<void> sair() async {
     _usuarioAtual = null;
+    _grupoSelecionadoId = null;
+    unawaited(SelecaoGrupoStore.salvar(null));
     notifyListeners();
   }
 
@@ -128,14 +196,90 @@ class DemoStore extends VanGoStore {
     );
   }
 
+  // ---------------------------------------------------------------- cadastro
+
+  @override
+  Future<OperacaoResultado> cadastrarMotorista({
+    required String nome,
+    required String email,
+    required String telefone,
+    required String senha,
+  }) async {
+    final normalizado = email.trim().toLowerCase();
+    if (_usuarios.any((u) => u.email.toLowerCase() == normalizado)) {
+      return const OperacaoResultado.erro(
+        'Já existe uma conta com este e-mail.',
+      );
+    }
+    final agora = DateTime.now();
+    final motorista = Usuario(
+      id: 'motorista-${agora.microsecondsSinceEpoch}',
+      nome: nome.trim(),
+      email: normalizado,
+      perfil: PerfilUsuario.motorista,
+      status: StatusConta.ativo,
+      ativoFirestore: true,
+      telefone: telefone.trim(),
+      criadoEm: agora,
+    );
+    _usuarios.add(motorista);
+    _usuarioAtual = motorista;
+    notifyListeners();
+    return const OperacaoResultado.ok(
+      'Conta de motorista criada (demonstração).',
+    );
+  }
+
+  @override
+  Future<OperacaoResultado> cadastrarAluno({
+    required String nome,
+    required String email,
+    required String telefone,
+    required String instituicao,
+    required Turno turno,
+    required String endereco,
+    required String senha,
+  }) async {
+    final normalizado = email.trim().toLowerCase();
+    if (_usuarios.any((u) => u.email.toLowerCase() == normalizado)) {
+      return const OperacaoResultado.erro(
+        'Já existe uma conta com este e-mail.',
+      );
+    }
+    final agora = DateTime.now();
+    final aluno = Usuario(
+      id: 'aluno-${agora.microsecondsSinceEpoch}',
+      nome: nome.trim(),
+      email: normalizado,
+      perfil: PerfilUsuario.aluno,
+      status: StatusConta.pendente,
+      ativoFirestore: false,
+      telefone: telefone.trim(),
+      instituicao: instituicao.trim(),
+      turno: turno,
+      enderecoEmbarque: endereco.trim(),
+      criadoEm: agora,
+    );
+    _usuarios.add(aluno);
+    _respostas.putIfAbsent(aluno.id, () => RespostaPresenca(alunoId: aluno.id));
+    _usuarioAtual = aluno;
+    notifyListeners();
+    return const OperacaoResultado.ok(
+      'Conta criada! Você já pode acessar seu painel.',
+    );
+  }
+
   // ------------------------------------------------------------------ alunos
 
   @override
   List<Usuario> get alunosAtivos {
+    final grupo = _grupoAtivoId;
     final lista = _usuarios
         .where(
           (u) =>
-              u.perfil == PerfilUsuario.aluno && u.status == StatusConta.ativo,
+              u.perfil == PerfilUsuario.aluno &&
+              u.status == StatusConta.ativo &&
+              (grupo.isEmpty || u.grupoId == grupo),
         )
         .toList();
     lista.sort((a, b) => _normalizar(a.nome).compareTo(_normalizar(b.nome)));
@@ -143,24 +287,29 @@ class DemoStore extends VanGoStore {
   }
 
   @override
-  List<Usuario> get alunosPendentes =>
-      _usuarios
-          .where(
-            (u) =>
-                u.perfil == PerfilUsuario.aluno &&
-                u.status == StatusConta.pendente,
-          )
-          .toList()
-        ..sort((a, b) => _normalizar(a.nome).compareTo(_normalizar(b.nome)));
+  List<Usuario> get alunosPendentes {
+    final grupo = _grupoAtivoId;
+    return _usuarios
+        .where(
+          (u) =>
+              u.perfil == PerfilUsuario.aluno &&
+              u.status == StatusConta.pendente &&
+              (grupo.isEmpty || u.grupoId == grupo),
+        )
+        .toList()
+      ..sort((a, b) => _normalizar(a.nome).compareTo(_normalizar(b.nome)));
+  }
 
   @override
   List<Usuario> alunosDoTurno(Turno turno, {String busca = ''}) {
     final termo = _normalizar(busca);
+    final grupo = _grupoAtivoId;
     final lista = _usuarios
         .where(
           (u) =>
               u.perfil == PerfilUsuario.aluno &&
               u.status == StatusConta.ativo &&
+              (grupo.isEmpty || u.grupoId == grupo) &&
               u.turno == turno &&
               (termo.isEmpty ||
                   _normalizar(u.nome).contains(termo) ||
@@ -201,9 +350,13 @@ class DemoStore extends VanGoStore {
     if (indice < 0) {
       return const OperacaoResultado.erro('Aluno não encontrado.');
     }
-    _usuarios[indice] = _usuarios[indice].copyWith(
+    final atualizado = _usuarios[indice].copyWith(
       status: StatusConta.desativado,
+      ativoFirestore: false,
+      limparMotivoRecusa: true,
     );
+    _usuarios[indice] = atualizado;
+    if (_usuarioAtual?.id == id) _usuarioAtual = atualizado;
     notifyListeners();
     return const OperacaoResultado.ok(
       'Aluno desativado. O histórico foi preservado.',
@@ -212,25 +365,51 @@ class DemoStore extends VanGoStore {
 
   @override
   Future<OperacaoResultado> aprovarAluno(String id) async {
-    final indice = _usuarios.indexWhere((u) => u.id == id);
+    final indice = _usuarios.indexWhere(
+      (u) =>
+          u.id == id &&
+          u.perfil == PerfilUsuario.aluno &&
+          u.grupoId == _grupoAtivoId &&
+          u.status == StatusConta.pendente,
+    );
     if (indice < 0) {
       return const OperacaoResultado.erro('Solicitação não encontrada.');
     }
-    _usuarios[indice] = _usuarios[indice].copyWith(status: StatusConta.ativo);
+    final atualizado = _usuarios[indice].copyWith(
+      status: StatusConta.ativo,
+      ativoFirestore: true,
+      limparMotivoRecusa: true,
+    );
+    _usuarios[indice] = atualizado;
+    _solicitacoes.removeWhere((aluno) => aluno.id == id);
+    if (_usuarioAtual?.id == id) _usuarioAtual = atualizado;
     _respostas.putIfAbsent(id, () => RespostaPresenca(alunoId: id));
     notifyListeners();
     return const OperacaoResultado.ok('Solicitação aprovada.');
   }
 
   @override
-  Future<OperacaoResultado> recusarAluno(String id) async {
-    final indice = _usuarios.indexWhere((u) => u.id == id);
+  Future<OperacaoResultado> recusarAluno(String id, {String? motivo}) async {
+    final indice = _usuarios.indexWhere(
+      (u) =>
+          u.id == id &&
+          u.perfil == PerfilUsuario.aluno &&
+          u.grupoId == _grupoAtivoId &&
+          u.status == StatusConta.pendente,
+    );
     if (indice < 0) {
       return const OperacaoResultado.erro('Solicitação não encontrada.');
     }
-    _usuarios[indice] = _usuarios[indice].copyWith(
+    final motivoLimpo = motivo?.trim();
+    final atualizado = _usuarios[indice].copyWith(
       status: StatusConta.recusado,
+      ativoFirestore: false,
+      motivoRecusa: motivoLimpo?.isNotEmpty == true ? motivoLimpo : null,
+      limparMotivoRecusa: motivoLimpo == null || motivoLimpo.isEmpty,
     );
+    _usuarios[indice] = atualizado;
+    _solicitacoes.removeWhere((aluno) => aluno.id == id);
+    if (_usuarioAtual?.id == id) _usuarioAtual = atualizado;
     notifyListeners();
     return const OperacaoResultado.ok('Solicitação recusada.');
   }
@@ -286,12 +465,18 @@ class DemoStore extends VanGoStore {
     if (_chamada?.aberta ?? false) {
       return const OperacaoResultado.erro('Já existe uma chamada aberta.');
     }
+    final grupoId = _grupoAtivoId;
+    if (grupoId.isEmpty) {
+      return const OperacaoResultado.erro(
+        'Crie uma van antes de abrir uma chamada.',
+      );
+    }
     _notificacoesResposta.clear();
     final agora = DateTime.now();
     _chamada = Chamada(
       id: 'chamada-${agora.millisecondsSinceEpoch}',
-      grupoId: DemoData.grupoId,
-      motoristaId: DemoData.motoristaId,
+      grupoId: grupoId,
+      motoristaId: _usuarioAtual?.id ?? DemoData.motoristaId,
       dataServico: dataAmanha,
       status: StatusChamada.aberta,
       criadaEm: agora,
@@ -317,6 +502,34 @@ class DemoStore extends VanGoStore {
     return const OperacaoResultado.ok(
       'Chamada encerrada. As respostas estão bloqueadas.',
     );
+  }
+
+  @override
+  Future<OperacaoResultado> cancelarChamada({String? motivo}) async {
+    if (!ehMotorista) {
+      return const OperacaoResultado.erro(
+        'Apenas o motorista pode cancelar a chamada.',
+      );
+    }
+    final chamada = _chamada;
+    if (chamada == null) {
+      return const OperacaoResultado.erro('Nenhuma chamada para cancelar.');
+    }
+    if (chamada.status == StatusChamada.cancelada) {
+      return const OperacaoResultado.erro('A chamada já foi cancelada.');
+    }
+    if (_viagemAtual?.status == StatusViagem.emAndamento) {
+      return const OperacaoResultado.erro(
+        'Encerre ou cancele a viagem em andamento antes de cancelar a chamada.',
+      );
+    }
+    _chamada = chamada.copyWith(
+      status: StatusChamada.cancelada,
+      canceladaEm: DateTime.now(),
+      motivoCancelamento: motivo?.trim(),
+    );
+    notifyListeners();
+    return const OperacaoResultado.ok('Chamada cancelada.');
   }
 
   @override
@@ -444,6 +657,11 @@ class DemoStore extends VanGoStore {
         'Nenhuma chamada criada para amanhã.',
       );
     }
+    if (chamada.status == StatusChamada.cancelada) {
+      return const OperacaoResultado.erro(
+        'Não é possível iniciar viagem de uma chamada cancelada.',
+      );
+    }
     if (chamada.aberta) {
       return const OperacaoResultado.erro(
         'Encerre a chamada antes de iniciar a viagem.',
@@ -451,6 +669,18 @@ class DemoStore extends VanGoStore {
     }
     if (_viagemAtual?.status == StatusViagem.emAndamento) {
       return const OperacaoResultado.erro('Já existe uma viagem em andamento.');
+    }
+
+    final viagemCanceladaAnterior = _historico.any(
+      (v) =>
+          v.chamadaId == chamada.id &&
+          v.sentido == sentido &&
+          v.status == StatusViagem.cancelada,
+    );
+    if (viagemCanceladaAnterior) {
+      return OperacaoResultado.erro(
+        'A viagem de ${sentido.label.toLowerCase()} desta chamada foi cancelada e não pode ser iniciada.',
+      );
     }
 
     final confirmacoes = <ConfirmacaoViagem>[];
@@ -519,6 +749,34 @@ class DemoStore extends VanGoStore {
           ? 'Viagem de volta encerrada. Uma nova chamada já pode ser aberta.'
           : 'Viagem de ida encerrada. A volta pode ser iniciada.',
     );
+  }
+
+  @override
+  Future<OperacaoResultado> cancelarViagem({String? motivo}) async {
+    if (!ehMotorista) {
+      return const OperacaoResultado.erro(
+        'Apenas o motorista pode cancelar a viagem.',
+      );
+    }
+    final viagem = _viagemAtual;
+    if (viagem == null || viagem.status != StatusViagem.emAndamento) {
+      return const OperacaoResultado.erro('Nenhuma viagem em andamento.');
+    }
+    final cancelada = viagem.copyWith(
+      status: StatusViagem.cancelada,
+      canceladaEm: DateTime.now(),
+      motivoCancelamento: motivo?.trim(),
+    );
+    _historico.insert(0, cancelada);
+    _viagemAtual = null;
+    if (viagem.sentido == SentidoViagem.volta) {
+      _chamada = null;
+      for (final aluno in alunosAtivos) {
+        _respostas[aluno.id] = RespostaPresenca(alunoId: aluno.id);
+      }
+    }
+    notifyListeners();
+    return const OperacaoResultado.ok('Viagem cancelada.');
   }
 
   @override
@@ -743,6 +1001,257 @@ class DemoStore extends VanGoStore {
     );
   }
 
+  // ------------------------------------------------------------------ grupos
+
+  @override
+  Future<List<GrupoVan>> carregarMeusGrupos() async {
+    final motorista = _usuarioAtual;
+    final permitidos = motorista == null
+        ? _grupos
+        : _grupos.where((grupo) => grupo.motoristaId == motorista.id).toList();
+    if (permitidos.isEmpty && motorista != null) {
+      // Motorista recém-cadastrado: nenhuma van pertence a ele ainda.
+      return <GrupoVan>[];
+    }
+    final preferido = await SelecaoGrupoStore.carregar();
+
+    final escolhido = permitidos.cast<GrupoVan?>().firstWhere(
+      (grupo) => grupo?.id == preferido,
+      orElse: () => null,
+    );
+    _grupoSelecionadoId =
+        (escolhido ?? (permitidos.isEmpty ? null : permitidos.first))?.id;
+    notifyListeners();
+    return List.unmodifiable(permitidos);
+  }
+
+  @override
+  Future<int> contarAlunosGrupo(String grupoId) async {
+    return _usuarios
+        .where(
+          (aluno) =>
+              aluno.perfil == PerfilUsuario.aluno &&
+              aluno.status == StatusConta.ativo &&
+              aluno.grupoId == grupoId,
+        )
+        .length;
+  }
+
+  @override
+  Future<OperacaoResultado> selecionarGrupo(String grupoId) async {
+    final permitido = _grupos.any(
+      (grupo) => grupo.id == grupoId && grupo.motoristaId == _usuarioAtual?.id,
+    );
+    if (!permitido) {
+      return const OperacaoResultado.erro(
+        'Van não encontrada para este usuário.',
+      );
+    }
+    if (_grupoSelecionadoId == grupoId) {
+      return const OperacaoResultado.ok('Van já selecionada.');
+    }
+    _limparEstadoDaVan();
+    _grupoSelecionadoId = grupoId;
+    await SelecaoGrupoStore.salvar(grupoId);
+    notifyListeners();
+    return const OperacaoResultado.ok('Van selecionada.');
+  }
+
+  @override
+  Future<OperacaoResultado> criarGrupo({
+    required String nome,
+    String? cidadeOrigem,
+    String? cidadeDestino,
+    PeriodoVan? periodo,
+    String? periodoPersonalizado,
+    String? horarioSaida,
+    String? observacoes,
+  }) async {
+    final motorista = _usuarioAtual;
+    if (motorista == null || motorista.perfil != PerfilUsuario.motorista) {
+      return const OperacaoResultado.erro(
+        'Apenas motoristas podem criar vans.',
+      );
+    }
+    final nomeLimpo = nome.trim();
+    if (nomeLimpo.length < 3) {
+      return const OperacaoResultado.erro('Informe o nome da van.');
+    }
+    if (periodo == PeriodoVan.personalizado &&
+        (periodoPersonalizado?.trim().isEmpty ?? true)) {
+      return const OperacaoResultado.erro('Descreva o período personalizado.');
+    }
+    final usados = _grupos.map((g) => g.codigo).toSet();
+    final codigo = gerarCodigoGrupo(usados: usados);
+    final grupo = GrupoVan(
+      id: 'grupo_demo_${codigo}_${_grupos.length + 1}',
+      nome: nomeLimpo,
+      motoristaId: motorista.id,
+      codigo: codigo,
+      cidadeOrigem: cidadeOrigem?.trim(),
+      cidadeDestino: cidadeDestino?.trim(),
+      periodoEnum: periodo,
+      periodoPersonalizado: periodoPersonalizado?.trim(),
+      horarioSaida: horarioSaida?.trim(),
+      observacoes: observacoes?.trim(),
+      criadoEm: DateTime.now(),
+      atualizadoEm: DateTime.now(),
+    );
+    _grupos.add(grupo);
+    _limparEstadoDaVan();
+    _grupoSelecionadoId = grupo.id;
+    await SelecaoGrupoStore.salvar(grupo.id);
+    notifyListeners();
+    return OperacaoResultado.ok(
+      'Van “${grupo.nome}” criada. Código: ${grupo.codigo}',
+    );
+  }
+
+  @override
+  Future<GrupoVan?> buscarGrupoPorCodigo(String codigo) async {
+    final codigoLimpo = codigo.trim();
+    if (codigoLimpo.isEmpty) return null;
+    for (final grupo in _grupos) {
+      if (grupo.codigo == codigoLimpo) return grupo;
+    }
+    return null;
+  }
+
+  @override
+  Future<GrupoVan?> buscarGrupoPorId(String grupoId) async {
+    final idLimpo = grupoId.trim();
+    if (idLimpo.isEmpty) return null;
+    for (final grupo in _grupos) {
+      if (grupo.id == idLimpo) return grupo;
+    }
+    return null;
+  }
+
+  @override
+  Future<OperacaoResultado> solicitarEntradaGrupo({
+    required String grupoId,
+  }) async {
+    final usuario = _usuarioAtual;
+    if (usuario == null || usuario.perfil != PerfilUsuario.aluno) {
+      return const OperacaoResultado.erro(
+        'Apenas alunos podem solicitar entrada em uma van.',
+      );
+    }
+    // Permite solicitar nova van se o aluno foi recusado ou desativado no grupo anterior
+    if (usuario.grupoId != null &&
+        usuario.grupoId!.isNotEmpty &&
+        usuario.status == StatusConta.pendente) {
+      return const OperacaoResultado.erro(
+        'Você já tem uma solicitação pendente. Aguarde a aprovação do motorista.',
+      );
+    }
+
+    final grupo = await buscarGrupoPorId(grupoId);
+    if (grupo == null) {
+      return const OperacaoResultado.erro('Van não encontrada.');
+    }
+
+    // Atualiza o aluno para vincular ao grupo (status continua pendente)
+    final indice = _usuarios.indexWhere((u) => u.id == usuario.id);
+    if (indice >= 0) {
+      _usuarios[indice] = _usuarios[indice].copyWith(
+        grupoId: grupoId,
+        status: StatusConta.pendente,
+        ativoFirestore: false,
+        limparMotivoRecusa: true,
+      );
+      _usuarioAtual = _usuarios[indice];
+    }
+    notifyListeners();
+
+    return const OperacaoResultado.ok(
+      'Solicitação enviada! Aguarde a aprovação do motorista.',
+    );
+  }
+
+  @override
+  Future<OperacaoResultado> atualizarCodigoGrupo(
+    String grupoId,
+    String novoCodigo,
+  ) async {
+    final usuario = _usuarioAtual;
+    if (usuario == null || usuario.perfil != PerfilUsuario.motorista) {
+      return const OperacaoResultado.erro(
+        'Apenas o motorista pode alterar o código da van.',
+      );
+    }
+    final indice = _grupos.indexWhere(
+      (grupo) => grupo.id == grupoId && grupo.motoristaId == usuario.id,
+    );
+    if (indice < 0) {
+      return const OperacaoResultado.erro(
+        'Você só pode alterar o código das suas próprias vans.',
+      );
+    }
+    if (novoCodigo.trim().length != 6 ||
+        int.tryParse(novoCodigo.trim()) == null) {
+      return const OperacaoResultado.erro(
+        'O código deve ter exatamente 6 dígitos numéricos.',
+      );
+    }
+    if (_grupos.any(
+      (grupo) => grupo.codigo == novoCodigo.trim() && grupo.id != grupoId,
+    )) {
+      return const OperacaoResultado.erro('Este código já está em uso.');
+    }
+
+    final anterior = _grupos[indice];
+    _grupos[indice] = anterior.copyWith(
+      codigo: novoCodigo.trim(),
+      atualizadoEm: DateTime.now(),
+    );
+    notifyListeners();
+    return const OperacaoResultado.ok('Código da van atualizado.');
+  }
+
+  @override
+  Future<OperacaoResultado> gerarNovoCodigoGrupo(String grupoId) async {
+    final usuario = _usuarioAtual;
+    if (usuario == null || usuario.perfil != PerfilUsuario.motorista) {
+      return const OperacaoResultado.erro(
+        'Apenas o motorista pode gerar um novo código.',
+      );
+    }
+    final indice = _grupos.indexWhere(
+      (grupo) => grupo.id == grupoId && grupo.motoristaId == usuario.id,
+    );
+    if (indice < 0) {
+      return const OperacaoResultado.erro('Van não encontrada.');
+    }
+    final codigo = gerarCodigoGrupo(
+      usados: _grupos.map((g) => g.codigo).toSet(),
+    );
+    return atualizarCodigoGrupo(grupoId, codigo);
+  }
+
+  @override
+  Future<List<Usuario>> carregarSolicitacoes(String grupoId) async {
+    if (_usuarioAtual?.perfil != PerfilUsuario.motorista) {
+      return <Usuario>[];
+    }
+    final grupo = await buscarGrupoPorId(grupoId);
+    if (grupo == null || grupo.motoristaId != _usuarioAtual?.id) {
+      return <Usuario>[];
+    }
+    _solicitacoes
+      ..clear()
+      ..addAll(
+        _usuarios.where(
+          (aluno) =>
+              aluno.perfil == PerfilUsuario.aluno &&
+              aluno.grupoId == grupoId &&
+              aluno.status == StatusConta.pendente,
+        ),
+      );
+    notifyListeners();
+    return List.unmodifiable(_solicitacoes);
+  }
+
   // ------------------------------------------------------------------ perfil
 
   @override
@@ -751,6 +1260,8 @@ class DemoStore extends VanGoStore {
     required String telefone,
     String? instituicao,
     String? endereco,
+    String? referencia,
+    Turno? turno,
     String? fotoUrl,
   }) async {
     final usuario = _usuarioAtual;
@@ -760,8 +1271,10 @@ class DemoStore extends VanGoStore {
     final atualizado = usuario.copyWith(
       nome: nome.trim(),
       telefone: telefone.trim(),
-      instituicao: instituicao,
-      enderecoEmbarque: endereco,
+      instituicao: instituicao?.trim(),
+      enderecoEmbarque: endereco?.trim(),
+      referenciaEndereco: referencia?.trim(),
+      turno: turno,
       fotoUrl: fotoUrl,
     );
     final indice = _usuarios.indexWhere((u) => u.id == usuario.id);

@@ -12,6 +12,7 @@ import 'package:vango/core/widgets/vango_button.dart';
 import 'package:vango/core/widgets/vango_card.dart';
 import 'package:vango/core/store.dart';
 import 'package:vango/features/driver/widgets/alteracoes_presenca_card.dart';
+import 'package:vango/models/chamada.dart';
 import 'package:vango/models/usuario.dart';
 import 'package:vango/models/viagem.dart';
 
@@ -75,6 +76,45 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     });
   }
 
+  Future<void> _cancelarChamada() async {
+    final chamada = StoreScope.read(context).chamadaAmanha;
+    if (chamada == null) return;
+    final motivo = await confirmarCancelamento(
+      context,
+      titulo: 'Cancelar chamada?',
+      mensagem: 'A chamada será cancelada e os alunos ativos do grupo serão notificados.',
+      confirmarLabel: 'Cancelar chamada',
+    );
+    if (motivo == null || !mounted) return;
+
+    await _executar(() async {
+      final resultado = await StoreScope.read(context)
+          .cancelarChamada(motivo: motivo.isEmpty ? null : motivo);
+      if (!mounted) return;
+      mostrarResultado(context, resultado);
+    });
+  }
+
+  Future<void> _cancelarViagem() async {
+    final viagem = StoreScope.read(context).viagemAtual;
+    if (viagem == null) return;
+    final motivo = await confirmarCancelamento(
+      context,
+      titulo: 'Cancelar viagem de ${viagem.sentido.label}?',
+      mensagem:
+          'A viagem em andamento será cancelada e os alunos serão notificados.',
+      confirmarLabel: 'Cancelar viagem',
+    );
+    if (motivo == null || !mounted) return;
+
+    await _executar(() async {
+      final resultado = await StoreScope.read(context)
+          .cancelarViagem(motivo: motivo.isEmpty ? null : motivo);
+      if (!mounted) return;
+      mostrarResultado(context, resultado);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
@@ -91,12 +131,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               onPerfil: () => context.push('/driver/profile'),
             ),
             const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.lg),
             _CartaoOperacao(store: store),
             if (store.notificacoesResposta.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.md),
-              AlteracoesPresencaCard(
-                notificacoes: store.notificacoesResposta,
-              ),
+              AlteracoesPresencaCard(notificacoes: store.notificacoesResposta),
             ],
             const SizedBox(height: AppSpacing.md),
             _AcoesOperacao(
@@ -113,12 +152,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 if (!context.mounted) return;
                 mostrarResultado(context, resultado);
               }),
+              onCancelarChamada: _cancelarChamada,
               onIniciarIda: () => _iniciarViagem(SentidoViagem.ida),
               onIniciarVolta: () => _iniciarViagem(SentidoViagem.volta),
               onEncerrarViagem: _encerrarViagem,
+              onCancelarViagem: _cancelarViagem,
             ),
             const SizedBox(height: AppSpacing.lg),
             _MenuMotorista(
+              onVans: () => context.push('/driver/vans'),
               onLista: () => context.push('/driver/daily-list'),
               onAlunos: () => context.push('/driver/students'),
               onHistorico: () => context.push('/driver/history'),
@@ -218,6 +260,8 @@ class _CartaoOperacao extends StatelessWidget {
                     ? AppColors.accent
                     : chamada?.aberta == true
                     ? AppColors.success
+                    : chamada?.status == StatusChamada.cancelada
+                    ? AppColors.error
                     : AppColors.muted,
               ),
               const SizedBox(width: 6),
@@ -232,17 +276,9 @@ class _CartaoOperacao extends StatelessWidget {
               ),
               const Spacer(),
               if (emViagem)
-                StatusChip(
-                  label: viagem!.sentido.label,
-                  tone: VangoTone.accent,
-                  compact: true,
-                )
+                StatusChip.viagem(viagem!.status, compact: true)
               else if (chamada != null)
-                StatusChip(
-                  label: chamada.status.label,
-                  tone: chamada.aberta ? VangoTone.success : VangoTone.neutral,
-                  compact: true,
-                ),
+                StatusChip.chamada(chamada.status, compact: true),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -253,6 +289,8 @@ class _CartaoOperacao extends StatelessWidget {
                 ? 'Nenhuma chamada aberta'
                 : chamada.aberta
                 ? 'Chamada aberta para amanhã'
+                : chamada.status == StatusChamada.cancelada
+                ? 'Chamada cancelada'
                 : 'Chamada encerrada',
             style: const TextStyle(
               fontSize: 20,
@@ -266,11 +304,18 @@ class _CartaoOperacao extends StatelessWidget {
                 ? 'Iniciada às ${formatarHoraTexto(viagem!.iniciadaEm == null ? null : formatarHora(viagem.iniciadaEm!))} · ${viagem.totalConfirmados} aluno(s) no sentido'
                 : chamada == null
                 ? 'Abra a chamada para receber as respostas de amanhã.'
+                : chamada.status == StatusChamada.cancelada
+                ? (chamada.motivoCancelamento != null &&
+                          chamada.motivoCancelamento!.isNotEmpty
+                      ? 'Motivo: ${chamada.motivoCancelamento}'
+                      : 'Serviço de ${formatarDataCurta(chamada.dataServico)} cancelado.')
                 : 'Serviço de ${formatarDataCurta(chamada.dataServico)} · '
                       '${store.totalRespostas} de ${store.presencasChamada.length} responderam',
             style: const TextStyle(fontSize: 12, color: AppColors.muted),
           ),
-          if (chamada != null && !emViagem) ...[
+          if (chamada != null &&
+              !emViagem &&
+              chamada.status != StatusChamada.cancelada) ...[
             const Divider(height: AppSpacing.lg),
             Row(
               children: [
@@ -344,18 +389,22 @@ class _AcoesOperacao extends StatelessWidget {
     required this.processando,
     required this.onAbrir,
     required this.onEncerrar,
+    required this.onCancelarChamada,
     required this.onIniciarIda,
     required this.onIniciarVolta,
     required this.onEncerrarViagem,
+    required this.onCancelarViagem,
   });
 
   final VanGoStore store;
   final bool processando;
   final VoidCallback onAbrir;
   final VoidCallback onEncerrar;
+  final VoidCallback onCancelarChamada;
   final VoidCallback onIniciarIda;
   final VoidCallback onIniciarVolta;
   final VoidCallback onEncerrarViagem;
+  final VoidCallback onCancelarViagem;
 
   @override
   Widget build(BuildContext context) {
@@ -396,11 +445,19 @@ class _AcoesOperacao extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.xs),
+          VangoButton(
+            label: 'Cancelar viagem',
+            icon: Icons.cancel_outlined,
+            variant: VangoButtonVariant.ghost,
+            loading: processando,
+            onPressed: onCancelarViagem,
+          ),
         ],
       );
     }
 
-    if (chamada == null) {
+    if (chamada == null || chamada.status == StatusChamada.cancelada) {
       return VangoButton(
         label: 'Abrir chamada de amanhã',
         icon: Icons.campaign_outlined,
@@ -418,12 +475,28 @@ class _AcoesOperacao extends StatelessWidget {
             onPressed: () => context.push('/driver/daily-list'),
           ),
           const SizedBox(height: AppSpacing.xs),
-          VangoButton(
-            label: 'Encerrar chamada',
-            icon: Icons.lock_outline_rounded,
-            variant: VangoButtonVariant.danger,
-            loading: processando,
-            onPressed: onEncerrar,
+          Row(
+            children: [
+              Expanded(
+                child: VangoButton(
+                  label: 'Encerrar chamada',
+                  icon: Icons.lock_outline_rounded,
+                  variant: VangoButtonVariant.danger,
+                  loading: processando,
+                  onPressed: onEncerrar,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: VangoButton(
+                  label: 'Cancelar',
+                  icon: Icons.cancel_outlined,
+                  variant: VangoButtonVariant.outline,
+                  loading: processando,
+                  onPressed: onCancelarChamada,
+                ),
+              ),
+            ],
           ),
         ],
       );
@@ -459,6 +532,14 @@ class _AcoesOperacao extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        VangoButton(
+          label: 'Cancelar chamada',
+          icon: Icons.cancel_outlined,
+          variant: VangoButtonVariant.ghost,
+          loading: processando,
+          onPressed: onCancelarChamada,
         ),
       ],
     );
@@ -525,6 +606,7 @@ class _StatusDot extends StatelessWidget {
 
 class _MenuMotorista extends StatelessWidget {
   const _MenuMotorista({
+    required this.onVans,
     required this.onLista,
     required this.onAlunos,
     required this.onHistorico,
@@ -532,6 +614,7 @@ class _MenuMotorista extends StatelessWidget {
     required this.onSair,
   });
 
+  final VoidCallback onVans;
   final VoidCallback onLista;
   final VoidCallback onAlunos;
   final VoidCallback onHistorico;
@@ -544,6 +627,13 @@ class _MenuMotorista extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Column(
         children: [
+          _ItemMenu(
+            icone: Icons.directions_bus_rounded,
+            titulo: 'Minhas vans',
+            subtitulo: 'Criar e alternar grupos',
+            onTap: onVans,
+          ),
+          const Divider(height: 1, indent: AppSpacing.md),
           _ItemMenu(
             icone: Icons.group_outlined,
             titulo: 'Lista do dia',

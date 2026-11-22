@@ -6,7 +6,10 @@ import '../resultado.dart';
 void mostrarResultado(BuildContext context, OperacaoResultado resultado) {
   mostrarToast(
     context,
-    resultado.mensagem ?? (resultado.sucesso ? 'Operação concluída.' : 'Erro.'),
+    resultado.mensagem ??
+        (resultado.sucesso
+            ? 'Operação concluída.'
+            : 'Erro inesperado. Tente novamente.'),
     erro: !resultado.sucesso,
   );
 }
@@ -70,4 +73,55 @@ Future<bool> confirmarAcao(
     ),
   );
   return resultado ?? false;
+}
+
+/// Exige confirmação e permite informar um motivo opcional de cancelamento.
+/// Retorna `null` se a ação for cancelada pelo usuário, ou a `String` do motivo
+/// (que pode ser vazia) quando o cancelamento for confirmado.
+Future<String?> confirmarCancelamento(
+  BuildContext context, {
+  required String titulo,
+  required String mensagem,
+  String confirmarLabel = 'Confirmar cancelamento',
+  String cancelarLabel = 'Voltar',
+  IconData icone = Icons.cancel_outlined,
+}) async {
+  final controller = TextEditingController();
+  final resultado = await showDialog<String?>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      icon: Icon(icone, color: AppColors.error, size: 32),
+      title: Text(titulo),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(mensagem),
+          const SizedBox(height: 16),
+          TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'Motivo do cancelamento (opcional)',
+              hintText: 'Ex.: Problemas mecânicos, imprevisto...',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 2,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(null),
+          child: Text(cancelarLabel),
+        ),
+        ElevatedButton(
+          onPressed: () =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+          child: Text(confirmarLabel),
+        ),
+      ],
+    ),
+  );
+  return resultado;
 }

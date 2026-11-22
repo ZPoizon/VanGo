@@ -48,6 +48,9 @@ class Usuario {
     this.instituicao,
     this.turno,
     this.enderecoEmbarque,
+    this.referenciaEndereco,
+    this.grupoId,
+    this.motivoRecusa,
     this.criadoEm,
   });
 
@@ -73,6 +76,17 @@ class Usuario {
   final String? instituicao;
   final Turno? turno;
   final String? enderecoEmbarque;
+
+  /// Complemento do ponto de embarque (referência, portão, ponto de encontro).
+  final String? referenciaEndereco;
+  final String? grupoId;
+
+  /// Motivo informado pelo motorista quando a solicitação é recusada.
+  ///
+  /// O campo é opcional e pode existir em documentos gravados por versões
+  /// anteriores ou por processos externos; as regras atuais não permitem que o
+  /// app escreva este campo no Firestore.
+  final String? motivoRecusa;
   final DateTime? criadoEm;
 
   /// Campo oficial de ativação no Firestore, com fallback para documentos
@@ -87,6 +101,7 @@ class Usuario {
   String? get faculdade => instituicao;
   String? get periodo => turno?.label;
   String? get endereco => enderecoEmbarque;
+  String? get referencia => referenciaEndereco;
 
   String get primeiroNome {
     final partes = nome.trim().split(RegExp(r'\s+'));
@@ -105,6 +120,10 @@ class Usuario {
     String? instituicao,
     Turno? turno,
     String? enderecoEmbarque,
+    String? referenciaEndereco,
+    String? grupoId,
+    String? motivoRecusa,
+    bool limparMotivoRecusa = false,
     DateTime? criadoEm,
   }) {
     return Usuario(
@@ -120,6 +139,11 @@ class Usuario {
       instituicao: instituicao ?? this.instituicao,
       turno: turno ?? this.turno,
       enderecoEmbarque: enderecoEmbarque ?? this.enderecoEmbarque,
+      referenciaEndereco: referenciaEndereco ?? this.referenciaEndereco,
+      grupoId: grupoId ?? this.grupoId,
+      motivoRecusa: limparMotivoRecusa
+          ? null
+          : (motivoRecusa ?? this.motivoRecusa),
       criadoEm: criadoEm ?? this.criadoEm,
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/chamada.dart';
+import '../models/grupo.dart';
 import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
@@ -57,7 +58,13 @@ abstract class VanGoStore extends ChangeNotifier {
   Future<OperacaoResultado> salvarAluno(Usuario aluno);
   Future<OperacaoResultado> desativarAluno(String id);
   Future<OperacaoResultado> aprovarAluno(String id);
-  Future<OperacaoResultado> recusarAluno(String id);
+
+  /// Recusa a solicitação de um aluno.
+  ///
+  /// [motivo] é exibido ao aluno quando disponível. No Firebase as regras atuais
+  /// limitam a escrita do motorista a `status`, `ativo` e `atualizadoEm`; por
+  /// isso o motivo só aparece quando já existe no documento do aluno.
+  Future<OperacaoResultado> recusarAluno(String id, {String? motivo});
 
   // --------------------------------------------------------------- chamadas
 
@@ -73,6 +80,8 @@ abstract class VanGoStore extends ChangeNotifier {
 
   Future<OperacaoResultado> abrirChamada();
   Future<OperacaoResultado> encerrarChamada();
+  Future<OperacaoResultado> cancelarChamada({String? motivo});
+
   /// Registra ou altera a resposta de presença do aluno.
   ///
   /// [ida] e [volta] são opcionais para permitir alteração independente:
@@ -89,6 +98,7 @@ abstract class VanGoStore extends ChangeNotifier {
 
   Future<OperacaoResultado> iniciarViagem(SentidoViagem sentido);
   Future<OperacaoResultado> encerrarViagem();
+  Future<OperacaoResultado> cancelarViagem({String? motivo});
   Future<OperacaoResultado> avisarAlunos(Iterable<String> alunoIds);
   Future<OperacaoResultado> registrarEstouIndo();
   Future<OperacaoResultado> liberarAluno();
@@ -101,6 +111,91 @@ abstract class VanGoStore extends ChangeNotifier {
   Future<OperacaoResultado> salvarPadraoSemanal(
     Map<int, PadraoSemanalDia> novoPadrao,
   );
+
+  // ------------------------------------------------------------------ cadastro
+
+  /// Cria somente a conta de motorista e seu perfil, sem vincular uma van.
+  ///
+  /// A criação de vans acontece depois, no painel "Minhas vans".
+  Future<OperacaoResultado> cadastrarMotorista({
+    required String nome,
+    required String email,
+    required String telefone,
+    required String senha,
+  });
+
+  /// Cria uma conta de aluno pendente, ainda sem vínculo com nenhuma van.
+  ///
+  /// O vínculo com o grupo é feito depois, pela entrada com código e aprovação
+  /// do motorista (Fase B).
+  Future<OperacaoResultado> cadastrarAluno({
+    required String nome,
+    required String email,
+    required String telefone,
+    required String instituicao,
+    required Turno turno,
+    required String endereco,
+    required String senha,
+  });
+
+  // ------------------------------------------------------------------ grupos
+
+  /// Vans pertencentes ao motorista autenticado, incluindo o grupo legado.
+  List<GrupoVan> get meusGrupos;
+
+  /// Van atualmente selecionada para operação (chamadas, alunos, viagens).
+  GrupoVan? get grupoSelecionado;
+
+  /// Lista as vans do motorista e restaura a última seleção persistida.
+  Future<List<GrupoVan>> carregarMeusGrupos();
+
+  /// Quantidade de alunos aprovados de uma van, sem trocar a van ativa.
+  Future<int> contarAlunosGrupo(String grupoId);
+
+  /// Seleciona a van ativa; a escolha persiste entre sessões.
+  Future<OperacaoResultado> selecionarGrupo(String grupoId);
+
+  /// Cria uma van com código numérico único de 6 dígitos.
+  Future<OperacaoResultado> criarGrupo({
+    required String nome,
+    String? cidadeOrigem,
+    String? cidadeDestino,
+    PeriodoVan? periodo,
+    String? periodoPersonalizado,
+    String? horarioSaida,
+    String? observacoes,
+  });
+
+  /// Busca um grupo pelo código de entrada numérico.
+  ///
+  /// Retorna null se o código não existir ou for inválido.
+  Future<GrupoVan?> buscarGrupoPorCodigo(String codigo);
+
+  /// Busca um grupo pelo seu ID de documento.
+  ///
+  /// Retorna null se o grupo não existir.
+  Future<GrupoVan?> buscarGrupoPorId(String grupoId);
+
+  /// Solicita entrada em um grupo pelo aluno autenticado.
+  ///
+  /// O aluno deve ter conta criada (status pendente) sem grupoId.
+  /// A solicitação fica pendente até aprovação do motorista.
+  Future<OperacaoResultado> solicitarEntradaGrupo({required String grupoId});
+
+  /// Atualiza o código de entrada do grupo (apenas motorista dono do grupo).
+  Future<OperacaoResultado> atualizarCodigoGrupo(
+    String grupoId,
+    String novoCodigo,
+  );
+
+  /// Gera e reserva um novo código para o grupo, invalidando o anterior.
+  Future<OperacaoResultado> gerarNovoCodigoGrupo(String grupoId);
+
+  /// Solicitações pendentes da van selecionada.
+  List<Usuario> get solicitacoesPendentes;
+
+  /// Lista atualizada de solicitações da van selecionada.
+  Future<List<Usuario>> carregarSolicitacoes(String grupoId);
 
   // ------------------------------------------------------------------ convite
 
@@ -124,11 +219,15 @@ abstract class VanGoStore extends ChangeNotifier {
 
   // ------------------------------------------------------------------ perfil
 
+  /// Atualiza somente os campos efetivamente informados. Campos omitidos
+  /// permanecem intactos no Firestore.
   Future<OperacaoResultado> atualizarPerfil({
     required String nome,
     required String telefone,
     String? instituicao,
     String? endereco,
+    String? referencia,
+    Turno? turno,
     String? fotoUrl,
   });
 

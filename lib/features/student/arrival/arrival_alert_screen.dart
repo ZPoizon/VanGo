@@ -24,7 +24,7 @@ class ArrivalAlertScreen extends StatelessWidget {
     final usuario = store.usuarioAtual;
     if (usuario == null) return const SizedBox.shrink();
 
-    final viagem = tripId == 'demo' ? null : store.viagemPorId(tripId);
+    final viagem = tripId.isEmpty ? null : store.viagemPorId(tripId);
     final emAndamento = viagem?.status == StatusViagem.emAndamento;
     final resposta = store.respostaDe(usuario.id);
     final jaAvisou = resposta.estouIndo;
@@ -42,11 +42,9 @@ class ArrivalAlertScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     StatusChip(
-                      label: store.modoDemo
-                          ? 'Prévia de demonstração'
-                          : 'Nenhuma viagem em andamento',
+                      label: 'Nenhuma viagem em andamento',
                       tone: VangoTone.warning,
-                      icon: Icons.science_outlined,
+                      icon: Icons.schedule_outlined,
                       compact: true,
                     ),
                   ],
@@ -75,9 +73,8 @@ class ArrivalAlertScreen extends StatelessWidget {
                         ? '${store.motorista?.nome ?? 'O motorista'} iniciou a '
                               'viagem de ${viagem!.sentido.label.toLowerCase()}. '
                               'Vá para a frente de casa.'
-                        : 'Prévia da notificação de alta visibilidade. Em '
-                              'produção, o aviso chega via FCM quando o motorista '
-                              'seleciona você.',
+                        : 'Nenhuma viagem em andamento no momento. O aviso '
+                              'aparecerá aqui quando o motorista iniciar a viagem.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 14,

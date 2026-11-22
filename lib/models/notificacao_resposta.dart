@@ -4,9 +4,10 @@ import 'viagem.dart';
 /// Aviso em tempo real exibido ao motorista quando um aluno altera uma
 /// resposta de presença já registrada na chamada.
 ///
-/// O aviso é derivado no cliente do motorista a partir do listener de
-/// `respostas`: não é um novo registro de presença nem uma segunda fonte da
-/// verdade. A resposta continua em `respostas/{chamadaId}_{alunoId}`.
+/// O aviso é persistido em `notificacoes` no mesmo commit da resposta e lido
+/// pelo listener do motorista. Não é um novo registro de presença nem uma
+/// segunda fonte da verdade: a resposta continua em
+/// `respostas/{chamadaId}_{alunoId}`.
 class NotificacaoResposta {
   const NotificacaoResposta({
     required this.id,
