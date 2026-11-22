@@ -73,6 +73,10 @@ ui-debug.log
 playwright-report/
 test-results/
 
+# E2E: apenas os utilitários reais são versionados; diagnósticos são locais
+tool/e2e_diag*
+tool/e2e_*.png
+
 # Local backups
 *.backup
 *firestore.rules.*backup*
