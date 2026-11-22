@@ -1,32 +1,8 @@
 rules_version = '2';
 
 // =============================================================================
-// PROPOSTA LOCAL — NÃO PUBLICA DA.
-// =============================================================================
-// Funcionalidade: confirmação de ida e volta pelo aluno.
+// REGRAS DE SEGURANÇA DO FIRESTORE - VANGO
 // Projeto: vango-4b4a5
-//
-// Este arquivo NÃO substitui `firestore.rules`. O arquivo ativo continua
-// idêntico ao ruleset publicado (80877a3a-f11e-427b-8207-8c9628ca888b), que
-// permite somente `get` em usuarios/{uid}.
-//
-// Publicar somente após aprovação explícita. Ao publicar, copiar este conteúdo
-// para `firestore.rules` e executar o deploy das regras (sem Shell/índices).
-//
-// Estrutura adotada (baseada no código funcional):
-//   usuarios/{uid}                     perfil, ativo, status, grupoId
-//   chamadas/{id}                      chamada do dia (status: aberta/encerrada)
-//   respostas/{chamadaId}_{alunoId}    FONTE DA VERDADE de ida/volta
-//   viagens/{id}                       snapshot por sentido (confirmacoes[])
-//   padroes/{uid}                      padrão semanal (próxima funcionalidade)
-//
-// Regras de negócio aplicadas aqui:
-//   * aluno lê/escreve somente a própria resposta;
-//   * gravação só enquanto a chamada estiver aberta (o motorista encerra a
-//     chamada antes de iniciar a viagem, o que bloqueia alterações posteriores);
-//   * perfil e ativação são lidos do próprio documento de usuário;
-//   * `status` contradizendo `ativo` bloqueia o acesso;
-//   * nenhuma permissão pública; demais coleções continuam negadas.
 // =============================================================================
 
 service cloud.firestore {
@@ -36,8 +12,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    /// Dados do próprio usuário. `get()` em regras não depende da regra de
-    /// leitura do documento; a regra de acesso ao perfil permanece restrita.
     function dadosDoPerfil() {
       return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
     }
@@ -47,8 +21,6 @@ service cloud.firestore {
         && dadosDoPerfil().get('perfil', '').lower() == nome;
     }
 
-    /// Perfil efetivo: exige `ativo == true` e, se `status` existir, exige que
-    /// seja `ativo`. Espelha `situacaoAtivacaoDe()` do aplicativo.
     function perfilAtivoEh(nome) {
       return perfilEh(nome)
         && dadosDoPerfil().get('ativo', false) == true
@@ -62,54 +34,296 @@ service cloud.firestore {
       return perfilAtivoEh('aluno');
     }
 
-    function ehMotoristaAtivo() {
+    function ehAluno() {
+      return perfilEh('aluno');
+    }
+
+    /// Motorista ativo, independentemente de ter grupoId no perfil. Vans novas
+    /// são identificadas pelos documentos de grupos que ele possui.
+    function ehMotorista() {
       return perfilAtivoEh('motorista');
     }
 
-    function grupoPadrao() {
-      return 'grupo-capao-itape';
+    /// Posse real do grupo, usada para motoristas com ou sem grupo legado.
+    function grupoPertenceAoMotorista(dados) {
+      return perfilAtivoEh('motorista')
+        && dados.get('grupoId', '') is string
+        && dados.get('grupoId', '').size() > 0
+        && get(/databases/$(database)/documents/grupos/$(dados.get('grupoId', ''))).data.get('motoristaId', '') == request.auth.uid;
     }
 
+    // Não existe grupo implícito: um documento sem grupoId não herda o van
+    // legada. Isso evita que contas sem vínculo leiam ou gravem dados privados.
     function meuGrupo() {
-      return dadosDoPerfil().get('grupoId', grupoPadrao());
+      return dadosDoPerfil().get('grupoId', '');
     }
 
     function grupoDoDado(dados) {
-      return dados.get('grupoId', grupoPadrao());
+      return dados.get('grupoId', '');
     }
 
     function mesmoGrupo(dados) {
-      return grupoDoDado(dados) == meuGrupo();
+      return perfilEh('motorista')
+        ? grupoPertenceAoMotorista(dados)
+        : grupoDoDado(dados) == meuGrupo();
     }
 
-    // ------------------------------------------------------- próprio perfil
-    // Inalterado: continua funcionando como no ruleset já publicado.
+    function motoristaDoGrupo(dados) {
+      return ehMotorista()
+        && dados.get('motoristaId', '') == request.auth.uid;
+    }
+
+    /// Uma chamada só aceita respostas enquanto está aberta e nenhuma viagem
+    /// iniciada a partir dela bloqueou as confirmações.
+    function chamadaAceitaRespostas(chamada) {
+      return chamada.get('status', '').lower() == 'aberta'
+        && chamada.get('viagemBloqueada', false) is bool
+        && chamada.get('viagemBloqueada', false) == false;
+    }
+
+    function respostaSentidoConfirmado(valor) {
+      return valor in ['vai', 'naoVai'];
+    }
+
+    // ------------------------------------------------------- cadastro seguro
+    // Campos textuais opcionais do perfil podem ser nulos (o mapper envia null
+    // quando o usuário não preencheu o campo).
+    function textoOuNulo(campo) {
+      return request.resource.data.get(campo, null) == null
+        || request.resource.data.get(campo, null) is string;
+    }
+
+    /// Validação comum para a criação do próprio perfil. Um usuário autenticado
+    /// só pode gravar usuarios/{uid} quando uid é o seu próprio UID do Auth.
+    function cadastroBaseValido(uid) {
+      return autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'nome', 'email', 'perfil', 'status', 'ativo', 'telefone', 'fotoUrl',
+          'instituicao', 'turno', 'enderecoEmbarque', 'referenciaEndereco',
+          'grupoId', 'criadoEm', 'atualizadoEm'
+        ])
+        && request.resource.data.get('nome', '') is string
+        && request.resource.data.get('nome', '').size() >= 3
+        && request.resource.data.get('email', '') is string
+        && request.resource.data.get('email', '').lower()
+          == request.auth.token.get('email', '').lower()
+        && request.resource.data.get('perfil', '') is string
+        && request.resource.data.get('perfil', '').lower() in ['motorista', 'aluno']
+        && request.resource.data.get('status', '') is string
+        && request.resource.data.get('status', '').lower() in ['ativo', 'pendente']
+        && request.resource.data.get('ativo', false) is bool
+        && request.resource.data.get('criadoEm', request.time) is timestamp
+        && request.resource.data.get('atualizadoEm', request.time) is timestamp
+        && textoOuNulo('telefone')
+        && (request.resource.data.get('telefone', null) == null
+          || request.resource.data.get('telefone', '').size() >= 10)
+        && textoOuNulo('fotoUrl')
+        && textoOuNulo('instituicao')
+        && textoOuNulo('turno')
+        && (request.resource.data.get('turno', null) == null
+          || request.resource.data.get('turno', '').lower() in ['matutino', 'noturno'])
+        && textoOuNulo('enderecoEmbarque')
+        && textoOuNulo('referenciaEndereco')
+        // Cadastro nunca escolhe grupo: nenhum vínculo é gravado no create.
+        && (!request.resource.data.keys().hasAny(['grupoId'])
+          || request.resource.data.get('grupoId', '') == '')
+        && !request.resource.data.keys().hasAny(['conflitoAtivacao']);
+    }
+
+    function cadastroMotoristaValido(uid) {
+      return cadastroBaseValido(uid)
+        && request.resource.data.get('perfil', '').lower() == 'motorista'
+        && request.resource.data.get('status', '').lower() == 'ativo'
+        && request.resource.data.get('ativo', false) == true;
+    }
+
+    function cadastroAlunoValido(uid) {
+      return cadastroBaseValido(uid)
+        && request.resource.data.get('perfil', '').lower() == 'aluno'
+        && request.resource.data.get('status', '').lower() == 'pendente'
+        && request.resource.data.get('ativo', false) == false;
+    }
+
+// ------------------------------------------------------- usuários / perfil
     match /usuarios/{userId} {
-      allow get: if autenticado() && request.auth.uid == userId;
-      allow list, create, update, delete: if false;
+      // Tokens de push são gravados pelo próprio usuário. A cloud function lê
+      // esta subcoleção com Admin SDK para disparar FCM.
+      match /tokens/{tokenId} {
+        allow get, list: if autenticado() && request.auth.uid == userId;
+        allow create, update: if autenticado()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'token', 'plataforma', 'atualizadoEm'
+          ])
+          && request.resource.data.get('token', '') is string
+          && request.resource.data.get('token', '').size() > 0
+          && request.resource.data.get('plataforma', '') is string
+          && request.resource.data.get('atualizadoEm', request.time) is timestamp;
+        allow delete: if autenticado() && request.auth.uid == userId;
+      }
+
+      /// Edição pessoal permitida ao aluno, inclusive sem grupo ou pendente.
+      /// Nenhum campo de acesso, grupo ou identidade pode ser alterado aqui.
+      function alunoEditaProprioPerfil() {
+        return autenticado()
+          && request.auth.uid == userId
+          && resource.data.get('perfil', '').lower() == 'aluno'
+          && mesmoGrupo(resource.data)
+          && mesmoGrupo(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nome', 'telefone', 'instituicao', 'turno', 'enderecoEmbarque',
+            'referenciaEndereco', 'fotoUrl', 'atualizadoEm'
+          ]);
+      }
+
+      /// O motorista edita somente seus dados pessoais. Informações de van,
+      /// trajeto e horários ficam fora deste documento nesta fase.
+      function motoristaEditaProprioPerfil() {
+        return autenticado()
+          && request.auth.uid == userId
+          && resource.data.get('perfil', '').lower() == 'motorista'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nome', 'telefone', 'fotoUrl', 'atualizadoEm'
+          ]);
+      }
+
+      allow get: if autenticado()
+        && (request.auth.uid == userId || (ehMotorista() && mesmoGrupo(resource.data)));
+
+      allow list: if ehMotorista() && mesmoGrupo(resource.data);
+
+      // Aluno atualiza próprio perfil (exceto campos sensíveis)
+      // Permite definir grupoId ao solicitar entrada (status=pendente, ativo=false)
+      // Motorista do grupo pode aprovar/recusar/desativar alunos do seu grupo
+      allow update: if alunoEditaProprioPerfil()
+        || motoristaEditaProprioPerfil()
+        // Solicitação de entrada em grupo: aluno define grupoId pela primeira vez
+        || (autenticado()
+          && request.auth.uid == userId
+          && resource.data.get('perfil', '').lower() == 'aluno'
+          && resource.data.get('grupoId', '') == ''
+          && request.resource.data.get('grupoId', '') != ''
+          && exists(/databases/$(database)/documents/grupos/$(request.resource.data.grupoId))
+          && request.resource.data.get('status', '') == 'pendente'
+          && request.resource.data.get('ativo', true) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'grupoId', 'status', 'ativo', 'atualizadoEm'
+          ]))
+        // Motorista aprova/recusa/desativa alunos do seu grupo. A solicitação
+        // correspondente é atualizada no mesmo lote pelo cliente.
+        || (ehMotorista()
+          && mesmoGrupo(resource.data)
+          && request.resource.data.get('perfil', '').lower() == 'aluno'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'ativo', 'motivoRecusa', 'atualizadoEm'
+          ])
+          && request.resource.data.get('status', '') in ['ativo', 'recusado', 'desativado']);
+
+      // Somente o próprio perfil, com valores válidos para o perfil escolhido.
+      allow create: if cadastroMotoristaValido(userId)
+        || cadastroAlunoValido(userId);
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------- grupos
+    match /grupos/{grupoId} {
+      // Leitura pontual: motorista dono, aluno ativo da van, ou aluno
+      // pendente/recusado vinculado a essa van (apenas para exibir nome/status).
+      // A listagem continua restrita ao motorista dono.
+      allow get: if autenticado()
+        && (
+          motoristaDoGrupo(resource.data)
+          || (ehAlunoAtivo() && grupoId == meuGrupo())
+          || (perfilEh('aluno') && dadosDoPerfil().get('grupoId', '') == grupoId)
+        );
+
+      // Listagem restrita ao motorista dono do grupo
+      allow list: if ehMotorista() && motoristaDoGrupo(resource.data);
+
+      function grupoValido() {
+        return request.resource.data.get('nome', '') is string
+          && request.resource.data.get('nome', '').size() >= 3
+          && request.resource.data.get('codigo', '') is string
+          && request.resource.data.get('codigo', '').matches('^[0-9]{6}$')
+          && (request.resource.data.get('periodo', '').lower() != 'personalizado'
+            || request.resource.data.get('periodoPersonalizado', '').size() > 0)
+          && (request.resource.data.get('cidadeOrigem', null) == null
+            || request.resource.data.get('cidadeOrigem', '') is string)
+          && (request.resource.data.get('cidadeDestino', null) == null
+            || request.resource.data.get('cidadeDestino', '') is string)
+          && (request.resource.data.get('periodo', null) == null
+            || request.resource.data.get('periodo', '').lower() in [
+              'manha', 'tarde', 'noite', 'personalizado'])
+          && (request.resource.data.get('periodoPersonalizado', null) == null
+            || request.resource.data.get('periodoPersonalizado', '') is string)
+          && (request.resource.data.get('horarioSaida', null) == null
+            || request.resource.data.get('horarioSaida', '') is string)
+          && (request.resource.data.get('observacoes', null) == null
+            || request.resource.data.get('observacoes', '') is string);
+      }
+
+      // Criação por motorista autenticado. Cada van tem ID próprio; o dono
+      // não precisa ter grupoId no perfil para criar a primeira van.
+      allow create: if autenticado()
+        && perfilEh('motorista')
+        && grupoId.matches('^grupo_' + request.auth.uid + '_[0-9]{6}$')
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'nome', 'motoristaId', 'codigo', 'cidadeOrigem', 'cidadeDestino',
+          'periodo', 'periodoPersonalizado', 'horarioSaida', 'observacoes',
+          'criadoEm', 'atualizadoEm'
+        ])
+        && grupoValido();
+
+      // Atualização apenas pelo motorista dono (código, nome e detalhes).
+      // A posse é verificada no próprio documento, sem depender do grupoId
+      // fixo no perfil.
+      allow update: if autenticado()
+        && perfilEh('motorista')
+        && resource.data.get('motoristaId', '') == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nome', 'codigo', 'cidadeOrigem', 'cidadeDestino', 'periodo',
+          'periodoPersonalizado', 'horarioSaida', 'observacoes', 'atualizadoEm'
+        ])
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['codigo'])
+            || (request.resource.data.get('codigo', '') is string
+                && request.resource.data.get('codigo', '').matches('^[0-9]{6}$')));
+
+      allow delete: if false;
     }
 
     // ------------------------------------------------------------- chamadas
-    // Leitura para o aluno ver a chamada do dia e para o motorista acompanhar.
-    // Somente o motorista ativo do grupo abre/encerra a chamada — necessário
-    // para o fluxo de confirmação e para bloquear respostas após a viagem.
     match /chamadas/{chamadaId} {
       allow get, list: if autenticado()
-        && (ehAlunoAtivo() || ehMotoristaAtivo())
+        && (ehAlunoAtivo() || ehMotorista())
         && mesmoGrupo(resource.data);
-      allow create: if ehMotoristaAtivo()
+
+      allow create: if ehMotorista()
         && mesmoGrupo(request.resource.data)
         && request.resource.data.get('motoristaId', '') == request.auth.uid;
-      allow update: if ehMotoristaAtivo()
+
+      allow update: if ehMotorista()
         && mesmoGrupo(resource.data)
         && mesmoGrupo(request.resource.data)
-        && request.resource.data.get('motoristaId', '')
-          == resource.data.get('motoristaId', '');
-      allow delete: if ehMotoristaAtivo() && mesmoGrupo(resource.data);
+        && request.resource.data.get('motoristaId', '') == resource.data.get('motoristaId', '')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'encerradaEm', 'canceladaEm', 'motivoCancelamento',
+          'viagemBloqueada', 'atualizadoEm'
+        ])
+        // Chamadas encerradas/canceladas não podem ser reabertas.
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+          || request.resource.data.get('status', '') in ['encerrada', 'cancelada']
+          || resource.data.get('status', '') == 'aberta'
+        )
+        && resource.data.get('status', '') != 'cancelada';
+
+      allow delete: if false;
     }
 
     // ------------------------------------------------------------- respostas
-    // ID obrigatório: "{chamadaId}_{alunoId}".
     match /respostas/{respostaId} {
 
       function idChamada() {
@@ -124,14 +338,12 @@ service cloud.firestore {
         return get(/databases/$(database)/documents/chamadas/$(idChamada())).data;
       }
 
-      /// A resposta pertence ao chamador, ao grupo dele e a uma chamada aberta
-      /// do mesmo grupo. Chamada inexistente ou encerrada => nega (fail closed).
       function respostaValidaDoAluno() {
         return ehRespostaDoAluno()
           && request.resource.data.get('alunoId', '') == request.auth.uid
           && request.resource.data.get('chamadaId', '') == idChamada()
           && mesmoGrupo(request.resource.data)
-          && chamadaDaResposta().get('status', '').lower() == 'aberta'
+          && chamadaAceitaRespostas(chamadaDaResposta())
           && mesmoGrupo(chamadaDaResposta());
       }
 
@@ -144,39 +356,394 @@ service cloud.firestore {
           && sentidoValido(request.resource.data.get('volta', 'semResposta'));
       }
 
-      // Aluno: apenas a própria resposta. Motorista: respostas do próprio
-      // grupo. As consultas do Flutter usam `chamadaId` e, para o aluno,
-      // também `alunoId`, compatíveis com esta regra.
-      allow get, list: if autenticado()
+      // A transação de resposta lê o documento antes de gravar. Quando ele
+      // ainda não existe, o aluno pode consultar apenas o próprio ID de
+      // resposta; a criação continua validando chamada, grupo e sentidos.
+      allow get: if autenticado() && (
+        (
+          exists(/databases/$(database)/documents/respostas/$(respostaId))
+          && mesmoGrupo(resource.data)
+          && (
+            (ehAlunoAtivo() && resource.data.get('alunoId', '') == request.auth.uid)
+            || ehMotorista()
+          )
+        )
+        || (
+          !exists(/databases/$(database)/documents/respostas/$(respostaId))
+          && ehAlunoAtivo()
+          && respostaId.split('_').size() == 2
+          && respostaId.split('_')[1] == request.auth.uid
+        )
+      );
+
+      allow list: if autenticado()
         && mesmoGrupo(resource.data)
         && (
-          (ehAlunoAtivo()
-            && resource.data.get('alunoId', '') == request.auth.uid)
-          || ehMotoristaAtivo()
+          (ehAlunoAtivo() && resource.data.get('alunoId', '') == request.auth.uid
+            && meuGrupo().size() > 0)
+          || ehMotorista()
         );
 
       allow create: if ehAlunoAtivo()
         && respostaValidaDoAluno()
         && sentidosValidos()
         && request.resource.data.keys().hasOnly([
-          'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm'
+          'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm', 'versao'
         ]);
 
-      // `diff().affectedKeys()` permite preservar campos de outras fases
-      // (estouIndo/liberadoEm/avisadoEm) sem ampliar o conjunto editável.
-      allow update: if ehAlunoAtivo()
-        && respostaValidaDoAluno()
-        && sentidosValidos()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm'
-        ]);
+      // `versao` é o contador lido na transação: a resposta e o aviso usam o
+      // mesmo número, o que impede aviso órfão ou duplicado em concorrência.
+      allow update: if (
+          ehAlunoAtivo()
+          && respostaValidaDoAluno()
+          && sentidosValidos()
+          && request.resource.data.get('versao', 0) is int
+          && request.resource.data.get('versao', 0)
+            == resource.data.get('versao', 0) + 1
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'chamadaId', 'alunoId', 'grupoId', 'ida', 'volta', 'respondidoEm',
+            'versao', 'estouIndo', 'estouIndoEm', 'liberadoEm'
+          ])
+        ) || (
+          // O motorista apenas marca o aviso de chegada; a resposta de presença
+          // continua sendo gravada exclusivamente pelo aluno.
+          ehMotorista()
+          && mesmoGrupo(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'avisadoEm'
+          ])
+          && request.resource.data.get('avisadoEm', request.time) is timestamp
+        );
 
       allow delete: if false;
     }
 
-    // -------------------------------------------------- demais coleções
-    // viagens, padroes, convites, notificacoes, grupos, tokens etc. continuam
-    // bloqueados até que cada funcionalidade tenha suas regras aprovadas.
+    // -------------------------------------------------- padrão semanal
+    match /padroes/{userId} {
+      allow get: if autenticado()
+        && ((ehAlunoAtivo() && request.auth.uid == userId) || ehMotorista())
+        && mesmoGrupo(resource.data);
+
+      allow list: if ehMotorista() && mesmoGrupo(resource.data);
+
+      allow create, update: if ehAlunoAtivo()
+        && request.auth.uid == userId
+        && mesmoGrupo(request.resource.data);
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------- viagens
+    match /viagens/{viagemId} {
+      allow get, list: if autenticado()
+        && (ehAlunoAtivo() || ehMotorista())
+        && mesmoGrupo(resource.data);
+
+      allow create: if ehMotorista()
+        && mesmoGrupo(request.resource.data)
+        && request.resource.data.get('motoristaId', '') == request.auth.uid;
+
+      allow update: if (
+          ehMotorista()
+          && mesmoGrupo(resource.data)
+          && mesmoGrupo(request.resource.data)
+          && request.resource.data.get('motoristaId', '') == resource.data.get('motoristaId', '')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'iniciadaEm', 'encerradaEm', 'canceladaEm',
+            'motivoCancelamento', 'confirmacoes', 'atualizadoEm'
+          ])
+          && resource.data.get('status', '') != 'finalizada'
+          && resource.data.get('status', '') != 'cancelada'
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+            || request.resource.data.get('status', '') in ['em_andamento', 'finalizada', 'cancelada']
+          )
+        ) || (
+          // Aluno ativo atualiza somente seus próprios sinais na viagem.
+          ehAlunoAtivo()
+          && mesmoGrupo(resource.data)
+          && mesmoGrupo(request.resource.data)
+          && request.resource.data.get('motoristaId', '')
+            == resource.data.get('motoristaId', '')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'confirmacoes'
+          ])
+          && confirmacoesAlteradasValidas(resource.data, request.resource.data)
+        );
+
+      allow delete: if false;
+    }
+
+    function confirmacoesAlteradasValidas(antes, depois) {
+      return depois.get('confirmacoes', []) is list
+        && depois.get('confirmacoes', []).size() == antes.get('confirmacoes', []).size();
+    }
+
+    // ------------------------------------------------------------- solicitações
+    match /solicitacoes/{solicitacaoId} {
+      // Aluno autenticado cria sua própria solicitação. O ID determinístico
+      // (o UID do aluno) limita cada aluno a uma solicitação ativa, evitando
+      // tentativas repetidas em vans diferentes.
+      allow create: if autenticado()
+        && solicitacaoId == request.auth.uid
+        && request.resource.data.get('alunoId', '') == request.auth.uid
+        && request.resource.data.get('grupoId', '') is string
+        && request.resource.data.get('grupoId', '').size() > 0
+        && exists(/databases/$(database)/documents/grupos/$(request.resource.data.grupoId))
+        && request.resource.data.get('status', '') == 'pendente'
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'alunoId', 'status', 'criadoEm'
+        ]);
+
+      // Motorista do grupo lista todas as solicitações do seu grupo.
+      // A posse é verificada no documento do grupo, sem depender de grupoId
+      // global no perfil do motorista.
+      allow get, list: if autenticado()
+        && ehMotorista()
+        && get(/databases/$(database)/documents/grupos/$(resource.data.grupoId)).data.get('motoristaId', '') == request.auth.uid;
+
+      // Motorista aprova/recusa alterando status
+      allow update: if (ehMotorista()
+          && get(/databases/$(database)/documents/grupos/$(resource.data.grupoId)).data.get('motoristaId', '') == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.get('status', '') in ['aprovado', 'recusado'])
+        // Após uma recusa, o próprio aluno pode tentar outra van. Enquanto a
+        // solicitação está pendente, novas tentativas são bloqueadas.
+        || (autenticado()
+          && solicitacaoId == request.auth.uid
+          && resource.data.get('alunoId', '') == request.auth.uid
+          && resource.data.get('status', '') == 'recusado'
+          && request.resource.data.get('alunoId', '') == request.auth.uid
+          && request.resource.data.get('grupoId', '') is string
+          && request.resource.data.get('grupoId', '').size() > 0
+          && exists(/databases/$(database)/documents/grupos/$(request.resource.data.grupoId))
+          && request.resource.data.get('status', '') == 'pendente'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'grupoId', 'status', 'criadoEm'
+          ]));
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------- convites
+    match /convites/{token} {
+      // Motorista cria convites para seu grupo
+      allow create: if ehMotorista()
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        && grupoPertenceAoMotorista(request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'motoristaId', 'turno', 'criadoEm'
+        ]);
+
+      // Qualquer um pode ler convite pelo token (para cadastro via link)
+      allow get: if autenticado();
+
+      allow list: if false;
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------- notificações
+    match /notificacoes/{notificacaoId} {
+
+      function chavesNotificacao() {
+        return [
+          'grupoId', 'titulo', 'corpo', 'alunoIds', 'tipo', 'dados', 'criadoEm'
+        ];
+      }
+
+      /// O envio de push usa Admin SDK (ignora regras), então as regras precisam
+      /// impedir que um motorista encaminhe tokens de alunos de outras vans.
+      /// O envio de push usa Admin SDK (ignora regras), então as regras precisam
+      /// impedir que um motorista encaminhe tokens de alunos de outras vans.
+      /// Sem loop/recursão, validamos até 8 destinatários por notificação.
+      function todosAlunosSaoDoGrupo(alunoIds, grupoId) {
+        return alunoIds.size() == 0
+          || (alunoIds.size() <= 8
+            && alunoIds.toSet().size() == alunoIds.size()
+            && alunoIdsDoGrupo(alunoIds, grupoId, 0)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 1)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 2)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 3)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 4)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 5)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 6)
+              + alunoIdsDoGrupo(alunoIds, grupoId, 7) == alunoIds.size());
+      }
+
+      function alunoIdsDoGrupo(alunoIds, grupoId, indice) {
+        return indice < alunoIds.size()
+          && get(/databases/$(database)/documents/usuarios/$(alunoIds[indice])).data.get('grupoId', '') == grupoId
+          ? 1 : 0;
+      }
+
+      function dadosDaNotificacao() {
+        return request.resource.data.dados;
+      }
+
+      function chamadaDaNotificacao() {
+        return get(/databases/$(database)/documents/chamadas/$(dadosDaNotificacao().chamadaId)).data;
+      }
+
+      function idRespostaNotificacao() {
+        return dadosDaNotificacao().chamadaId + '_' + request.auth.uid;
+      }
+
+      function caminhoRespostaNotificacao() {
+        return /databases/$(database)/documents/respostas/$(idRespostaNotificacao());
+      }
+
+      function respostaAntesNotificacao() {
+        return get(caminhoRespostaNotificacao()).data;
+      }
+
+      function respostaDepoisNotificacao() {
+        return getAfter(caminhoRespostaNotificacao()).data;
+      }
+
+      function sentidoAnteriorValido() {
+        return dadosDaNotificacao().sentido == 'ida'
+          ? respostaAntesNotificacao().get('ida', '')
+              == dadosDaNotificacao().respostaAnterior
+          : respostaAntesNotificacao().get('volta', '')
+              == dadosDaNotificacao().respostaAnterior;
+      }
+
+      function sentidoAtualValido() {
+        return dadosDaNotificacao().sentido == 'ida'
+          ? respostaDepoisNotificacao().get('ida', '')
+              == dadosDaNotificacao().respostaAtual
+          : respostaDepoisNotificacao().get('volta', '')
+              == dadosDaNotificacao().respostaAtual;
+      }
+
+      /// Aviso de alteração de presença: o aluno só pode registrar o próprio
+      /// evento, com grupo/chamada da van correta e valores conferidos pela
+      /// resposta antes e depois da transação. Nome não viaja no documento.
+      function alteracaoRespostaValida() {
+        return ehAlunoAtivo()
+          && request.resource.data.tipo == 'resposta_alterada'
+          && request.resource.data.keys().hasAll(chavesNotificacao())
+          && request.resource.data.keys().hasOnly(chavesNotificacao())
+          && request.resource.data.titulo == 'Presença alterada'
+          && request.resource.data.corpo == 'Aluno alterou uma resposta de presença.'
+          && request.resource.data.alunoIds is list
+          && request.resource.data.alunoIds.size() == 0
+          && request.resource.data.criadoEm == request.time
+          && request.resource.data.grupoId == dadosDoPerfil().get('grupoId', '')
+          && request.resource.data.dados is map
+          && dadosDaNotificacao().keys().hasAll([
+            'alunoId', 'chamadaId', 'sentido', 'respostaAnterior', 'respostaAtual'
+          ])
+          && dadosDaNotificacao().keys().hasOnly([
+            'alunoId', 'chamadaId', 'sentido', 'respostaAnterior', 'respostaAtual'
+          ])
+          && dadosDaNotificacao().alunoId == request.auth.uid
+          && dadosDaNotificacao().chamadaId is string
+          && dadosDaNotificacao().chamadaId.size() > 0
+          && dadosDaNotificacao().sentido in ['ida', 'volta']
+          && respostaSentidoConfirmado(dadosDaNotificacao().respostaAnterior)
+          && respostaSentidoConfirmado(dadosDaNotificacao().respostaAtual)
+          && dadosDaNotificacao().respostaAnterior != dadosDaNotificacao().respostaAtual
+          && chamadaAceitaRespostas(chamadaDaNotificacao())
+          && chamadaDaNotificacao().get('grupoId', '')
+            == request.resource.data.grupoId
+          && exists(caminhoRespostaNotificacao())
+          && respostaAntesNotificacao().get('alunoId', '') == request.auth.uid
+          && respostaAntesNotificacao().get('grupoId', '')
+            == request.resource.data.grupoId
+          && sentidoAnteriorValido()
+          && sentidoAtualValido();
+      }
+
+      // Notificações internas do motorista continuam permitidas; o novo tipo
+      // é restrito ao aluno autor da alteração na mesma transação.
+      allow create: if (ehMotorista()
+          && request.resource.data.tipo in ['chamada_aberta', 'viagem_cancelada', 'chegada']
+          && grupoPertenceAoMotorista(request.resource.data)
+          && request.resource.data.keys().hasAll(chavesNotificacao())
+          && request.resource.data.keys().hasOnly(chavesNotificacao())
+          && request.resource.data.get('alunoIds', []) is list
+          && request.resource.data.get('titulo', '') is string
+          && request.resource.data.get('corpo', '') is string
+          && request.resource.data.get('criadoEm', request.time) == request.time
+          && todosAlunosSaoDoGrupo(
+            request.resource.data.get('alunoIds', []),
+            request.resource.data.get('grupoId', '')
+          ))
+        || alteracaoRespostaValida();
+
+      // Alunos do grupo leem suas notificações. Avisos de alteração de presença
+      // têm `alunoIds` vazio e são destinados ao motorista da van.
+      allow get, list: if ehAlunoAtivo()
+        && resource.data.get('grupoId', '') == meuGrupo()
+        && meuGrupo().size() > 0
+        && request.auth.uid in resource.data.get('alunoIds', []);
+
+      allow get: if ehMotorista()
+        && grupoPertenceAoMotorista(resource.data);
+
+      allow list: if ehMotorista()
+        && grupoPertenceAoMotorista(resource.data);
+
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------- códigos de grupo
+    match /codigos/{codigo} {
+      // A resolução do código exato é a informação pública mínima necessária
+      // para que um aluno autenticado solicite entrada em uma van. A leitura é
+      // pontual (get): a listagem de códigos continua proibida.
+      allow get: if autenticado();
+
+      // Sistema reserva código via transação (criação atômica). O ID do
+      // documento é o próprio código, então ele também precisa ser validado.
+      // `reservadoPor` vincula a reserva ao auth.uid: sem isso, outro motorista
+      // poderia concluir uma reserva alheia só por conhecer o código/ID.
+      allow create: if autenticado()
+        && perfilEh('motorista')
+        && codigo.matches('^[0-9]{6}$')
+        && request.resource.data.keys().hasOnly(['reservadoEm', 'expiraEm', 'reservadoPor'])
+        && request.resource.data.get('reservadoPor', '') == request.auth.uid
+        && request.resource.data.get('expiraEm', request.time) is timestamp
+        && request.resource.data.get('expiraEm', request.time) > request.time;
+
+      // Motorista conclui a reserva do próprio código, acrescentando apenas
+      // o vínculo com seu grupo. A posse é confirmada por: reserva criada pelo
+      // mesmo auth.uid, vínculo motoristaId do mesmo uid, grupoId no padrão
+      // grupo_{uid}_{codigo}, e grupo ausente ou pertencente ao mesmo motorista.
+      // O grupo pode ser criado na mesma transação, então o get() pode não
+      // enxergá-lo ainda; o padrão do ID é evidência de posse, não a única.
+      allow update: if (
+          resource.data.keys().hasOnly(['reservadoEm', 'expiraEm', 'reservadoPor'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'grupoId', 'motoristaId'
+          ])
+          && resource.data.get('reservadoPor', '') == request.auth.uid
+          && request.resource.data.get('motoristaId', '') == request.auth.uid
+          && request.resource.data.get('grupoId', '').matches('^grupo_' + request.auth.uid + '_[0-9]{6}$')
+          && (
+            !exists(/databases/$(database)/documents/grupos/$(request.resource.data.get('grupoId', '')))
+            || get(/databases/$(database)/documents/grupos/$(request.resource.data.get('grupoId', ''))).data.get('motoristaId', '') == request.auth.uid
+          )
+        ) || (
+          // Reserva órfã/expirada: somente quem a reservou pode renová-la.
+          resource.data.keys().hasOnly(['reservadoEm', 'expiraEm', 'reservadoPor'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'reservadoEm', 'expiraEm'
+          ])
+          && resource.data.get('reservadoPor', '') == request.auth.uid
+        );
+
+      // Motorista libera código ao gerar novo. Reservas órfãs/expiradas também
+      // podem ser removidas por quem as reservou, evitando bloqueio permanente.
+      allow delete: if grupoPertenceAoMotorista(resource.data)
+        || (resource.data.keys().hasOnly(['reservadoEm', 'expiraEm', 'reservadoPor'])
+          && resource.data.get('reservadoPor', '') == request.auth.uid);
+
+      allow list: if false;
+    }
+
+    // -------------------------------------------------- bloqueio padrão
     match /{document=**} {
       allow read, write: if false;
     }
