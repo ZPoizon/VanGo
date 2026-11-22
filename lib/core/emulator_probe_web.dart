@@ -1,3 +1,7 @@
+// Import condicional exclusivo da Web, usado apenas para sondar os emuladores
+// antes de chamar useAuthEmulator/useFirestoreEmulator. A migração para
+// package:web fica fora do escopo desta consolidação.
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 
 Future<void> probeEmulatorHost(

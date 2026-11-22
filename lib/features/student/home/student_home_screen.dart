@@ -445,8 +445,9 @@ String _motivoBloqueio(Chamada? chamada, Viagem? viagem) {
   if (viagem?.status == StatusViagem.emAndamento) {
     return 'Respostas bloqueadas: a viagem já começou.';
   }
-  if (chamada.cancelada)
+  if (chamada.cancelada) {
     return 'Respostas bloqueadas: a chamada foi cancelada.';
+  }
   if (!chamada.aberta) return 'Respostas bloqueadas: a chamada foi encerrada.';
   return 'Respostas indisponíveis no momento.';
 }

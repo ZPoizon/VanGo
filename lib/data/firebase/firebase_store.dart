@@ -1006,8 +1006,9 @@ class FirebaseStore extends VanGoStore {
     }
     final chamada = _chamada;
     if (chamada == null) return 'Nenhuma chamada aberta.';
-    if (!chamada.aberta)
+    if (!chamada.aberta) {
       return 'Respostas bloqueadas: a chamada foi encerrada.';
+    }
     return null;
   }
 
