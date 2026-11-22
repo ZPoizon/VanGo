@@ -35,12 +35,19 @@ class VangoButton extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (loading) ...[
-          SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: colors.foreground,
+          // Mantém o nó semântico como botão enquanto o spinner aparece.
+          // Sem isso, o engine Web troca button por loadingSpinner e o foco
+          // sai da view durante o pop da rota (flutter/flutter#194056).
+          Semantics(
+            label: label,
+            excludeSemantics: true,
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colors.foreground,
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.xs),

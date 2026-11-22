@@ -46,7 +46,6 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
     if (_salvando || formState == null) return;
     if (!formState.validate()) return;
     setState(() => _salvando = true);
-    FocusManager.instance.primaryFocus?.unfocus();
     try {
       final resultado = await StoreScope.read(context).criarGrupo(
         nome: _nome.text,
@@ -60,6 +59,9 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
       if (!mounted) return;
       mostrarResultado(context, resultado);
       if (resultado.sucesso) {
+        // Não chamar unfocus manualmente: o desfoco imediato antes do pop
+        // deixava o focus manager visitar render objects inativos
+        // (Null check em RenderObject.getTransformTo / FocusScope inativo).
         context.pop(true);
       }
     } catch (_) {

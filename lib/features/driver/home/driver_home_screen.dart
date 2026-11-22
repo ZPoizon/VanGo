@@ -691,27 +691,31 @@ class _ItemMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      leading: Icon(
-        icone,
-        color: destrutivo ? AppColors.error : AppColors.primary,
-      ),
-      title: Text(
-        titulo,
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-          color: destrutivo ? AppColors.error : AppColors.text,
+    // Material próprio mantém o fundo e o ink do ListTile acima do card.
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(
+          icone,
+          color: destrutivo ? AppColors.error : AppColors.primary,
         ),
+        title: Text(
+          titulo,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: destrutivo ? AppColors.error : AppColors.text,
+          ),
+        ),
+        subtitle: subtitulo == null
+            ? null
+            : Text(
+                subtitulo!,
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+        trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
       ),
-      subtitle: subtitulo == null
-          ? null
-          : Text(
-              subtitulo!,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
     );
   }
 }
