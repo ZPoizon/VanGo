@@ -91,6 +91,47 @@ Chaves aceitas: `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`,
 
 > `firebase.local.json` está no `.gitignore` — não comite credenciais.
 
+### Validação local com Firebase Emulator Suite (`demo-vango`)
+
+Para validação automatizada, use **somente** os emuladores. O bootstrap do app
+impõe `demo-vango`, sonda Auth/Firestore e chama `useAuthEmulator` /
+`useFirestoreEmulator`; não existe fallback para produção nesse modo.
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+firebase emulators:start --only auth,firestore,ui --project demo-vango
+```
+
+Em outro terminal, gere o build **debug** e sirva o web:
+
+```powershell
+flutter build web --debug `
+  --dart-define=USE_FIREBASE_EMULATORS=true `
+  --dart-define=FIREBASE_EMULATOR_HOST=127.0.0.1 `
+  --dart-define=FIREBASE_AUTH_EMULATOR_PORT=9099 `
+  --dart-define=FIREBASE_FIRESTORE_EMULATOR_PORT=8080 `
+  --dart-define=FIREBASE_EMULATOR_PROJECT_ID=demo-vango `
+  --output=build/web_e2e
+
+node tool/e2e_static_server.mjs build/web_e2e 7358
+```
+
+> O build precisa ser `--debug`: o `firebase_auth_web` reaplica a origem do
+> emulador a partir de `sessionStorage` somente em `kDebugMode`. Em release, um
+> reload pode contatar Auth de produção antes de `useAuthEmulator`.
+
+Endereços locais: app `http://127.0.0.1:7358/`, UI dos emuladores
+`http://127.0.0.1:4000/`, Auth `127.0.0.1:9099`, Firestore `127.0.0.1:8080`.
+
+Para rodar somente as regras:
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+npm --prefix tool/rules_test test
+```
+
 #### Android
 
 - O plugin `com.google.gms.google-services` é aplicado **somente** quando
@@ -181,15 +222,43 @@ Nenhuma migração ou exclusão de dados foi feita. O bloqueio de alteração ap
 início da viagem é feito no servidor pela regra que exige `chamada.status ==
 'aberta'`; o motorista encerra a chamada antes de iniciar a viagem.
 
-As regras desta funcionalidade foram testadas no emulador (31/31 casos) e
-publicadas em 20/11/2026 no projeto `vango-4b4a5` (ruleset
-`02a1712e-e1e3-496f-910a-10f56a264a22`). A cópia exata revisada ficou em
-`firestore.rules.confirmacao.proposto`, e o arquivo ativo `firestore.rules`
-continua idêntico ao ruleset publicado. Nenhum índice, Cloud Function, Storage
-ou Hosting foi publicado.
+As regras foram validadas no emulador: **64 permitidos e 121 proibidos, sem
+falhas**. A leitura somente leitura do projeto `vango-4b4a5` identificou como
+ruleset ativo `84033eba-209f-46aa-9183-ebe54e0aa139`
+(SHA `48a7e2ab5c990d8b37dfa71bfbc0db89534c3e5898da6c2c8d0ca7724f225594`).
+A referência antiga `02a1712e-e1e3-496f-910a-10f56a264a22` **não é o ruleset
+ativo**.
+
+O `firestore.rules` deste repositório **pode divergir das regras publicadas**.
+A correção de leitura pontual da van por código público ainda não foi publicada
+e exige deploy autorizado; nada foi publicado nesta consolidação. Resultados
+obtidos no emulador não comprovam funcionamento em produção.
 
 A listagem de `chamadas` filtra apenas por `grupoId` e ordena `dataServico`
 localmente no cliente, evitando o índice composto que ainda não foi publicado.
+
+### Validação E2E no Emulator Suite
+
+`tool/e2e_part1.js` executa o fluxo crítico com sessões isoladas de motorista e
+aluno e confere os documentos diretamente no Firestore Emulator. Cobertura:
+
+- cadastro/login do motorista com o UID do Auth espelhado em `usuarios/{uid}`;
+- criação da van e emissão de código de 6 dígitos;
+- aluno sem grupo resolve o código, vê a van correta e envia solicitação;
+- solicitação permanece **pendente** após refresh;
+- motorista visualiza e aprova a solicitação de forma atômica;
+- aluno vê o vínculo ativo após refresh, **sem logout**;
+- motorista abre a chamada; aluno responde ida e volta; motorista encerra;
+- conferência final de `usuarios`, `solicitacoes`, `grupos`, `codigos`,
+  `chamadas` e `respostas`.
+
+Última execução: **14/14 etapas aprovadas**, zero erros de console/HTTP.
+O isolamento entre grupos é verificado pelos casos proibidos da suíte de regras
+(leitura/escrita entre grupos) e pelo uso de contextos de navegador separados.
+
+Ainda pendente de validação em ambiente real: deploy das regras locais,
+índices, Storage, Functions/Hosting e FCM. Nenhum desses itens foi publicado ou
+validado em produção nesta consolidação.
 
 ---
 
@@ -239,12 +308,15 @@ vango/
 ## ✅ Estado Atual
 
 - Interface completa e navegável nos modos **demonstração** e **Firebase**.
-- Autenticação, perfis, aprovação de alunos, chamadas, respostas, viagens,
-  histórico, convites e foto de perfil integrados ao Firebase.
-- Push de chegada via FCM com Cloud Function, canal Android `vango_chegada` e
-  tratamento de foreground/background.
+- Fluxo crítico (cadastro, van por código, aprovação, chamada e respostas)
+  validado de ponta a ponta no **Firebase Emulator Suite**, não em produção.
+- Regras locais validadas no emulador; regras publicadas podem ser diferentes.
+- Push de chegada via FCM, Cloud Function, canal Android `vango_chegada` e
+  tratamento de foreground/background permanecem **sem validação em produção**.
 - Sem credenciais, o app continua abrindo em modo demonstração (Android, iOS,
-  macOS e web); Windows/Linux usam demonstração.
+  macOS e web); Windows/Linux usam demonstração. O `DemoStore` nunca foi usado
+  como evidência de funcionamento do Firebase.
 
-**Próximos passos sugeridos:** Google Sign-In, painel administrativo, relatórios
-e testes automatizados de integração com o Emulator Suite.
+**Pendências de validação:** deploy autorizado das regras locais e demais
+recursos do Firebase; validação de FCM/push em projeto real; Google Sign-In,
+painel administrativo e relatórios (fora do escopo desta consolidação).
