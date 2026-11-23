@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:vango/app/theme/app_colors.dart';
 import 'package:vango/app/theme/app_spacing.dart';
+import 'package:vango/core/share/compartilhamento.dart';
 import 'package:vango/core/store_scope.dart';
 import 'package:vango/core/widgets/feedback.dart';
 import 'package:vango/core/widgets/status_chip.dart';
@@ -14,9 +15,21 @@ import 'package:vango/models/grupo.dart';
 import 'package:vango/models/usuario.dart';
 
 class VanDetailScreen extends StatefulWidget {
-  const VanDetailScreen({super.key, required this.grupoId});
+  const VanDetailScreen({
+    super.key,
+    required this.grupoId,
+    this.solicitacaoId,
+    this.compartilhamento = const CompartilhamentoPadrao(),
+  });
 
   final String grupoId;
+
+  /// Aluno cuja solicitação foi aberta a partir de um aviso no dashboard.
+  final String? solicitacaoId;
+
+  /// Implementação de compartilhamento injetável; por padrão usa menu nativo
+  /// no Android e Web Share API/alternativas no Web.
+  final CompartilhamentoVan compartilhamento;
 
   @override
   State<VanDetailScreen> createState() => _VanDetailScreenState();
@@ -85,10 +98,16 @@ class _VanDetailScreenState extends State<VanDetailScreen> {
     mostrarToast(context, 'Código copiado para a área de transferência.');
   }
 
-  void _compartilharCodigo(GrupoVan grupo) {
-    final texto =
-        'Entre na van ${grupo.nome} no VanGo com o código ${grupo.codigo}.';
-    mostrarToast(context, 'Compartilhe este texto: $texto');
+  Future<void> _compartilharCodigo(GrupoVan grupo) async {
+    // Reaproveita o código existente: compartilhar nunca gera um novo código.
+    await widget.compartilhamento.compartilhar(
+      context: context,
+      titulo: 'VanGo — ${grupo.nome}',
+      texto: CompartilhamentoPadrao.mensagem(
+        nomeVan: grupo.nome,
+        codigo: grupo.codigo,
+      ),
+    );
   }
 
   Future<void> _decidir(Usuario aluno, bool aprovar) async {
@@ -131,6 +150,7 @@ class _VanDetailScreenState extends State<VanDetailScreen> {
                   const SizedBox(height: AppSpacing.lg),
                   _SecaoSolicitacoes(
                     solicitacoes: _solicitacoes,
+                    solicitacaoSelecionadaId: widget.solicitacaoId,
                     processando: _processando,
                     onAprovar: (aluno) => _decidir(aluno, true),
                     onRecusar: (aluno) => _decidir(aluno, false),
@@ -201,7 +221,7 @@ class _CartaoCodigo extends StatelessWidget {
   final GrupoVan grupo;
   final bool processando;
   final Future<void> Function(String codigo) onCopiar;
-  final void Function(GrupoVan grupo) onCompartilhar;
+  final Future<void> Function(GrupoVan grupo) onCompartilhar;
   final Future<void> Function() onGerarNovo;
 
   @override
@@ -276,21 +296,32 @@ class _SecaoSolicitacoes extends StatelessWidget {
     required this.processando,
     required this.onAprovar,
     required this.onRecusar,
+    this.solicitacaoSelecionadaId,
   });
 
   final List<Usuario> solicitacoes;
+  final String? solicitacaoSelecionadaId;
   final bool processando;
   final Future<void> Function(Usuario aluno) onAprovar;
   final Future<void> Function(Usuario aluno) onRecusar;
 
   @override
   Widget build(BuildContext context) {
+    // A solicitação originária do aviso aparece primeiro e fica destacada.
+    final ordenadas = List<Usuario>.from(solicitacoes)
+      ..sort((a, b) {
+        const primeiro = -1;
+        const segundo = 1;
+        final aSelecionada = a.id == solicitacaoSelecionadaId ? 0 : 1;
+        final bSelecionada = b.id == solicitacaoSelecionadaId ? 0 : 1;
+        return aSelecionada == bSelecionada ? 0 : aSelecionada == 0 ? primeiro : segundo;
+      });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SecaoRotulo('Solicitações pendentes'),
         const SizedBox(height: AppSpacing.sm),
-        if (solicitacoes.isEmpty)
+        if (ordenadas.isEmpty)
           const VangoCard(
             child: Text(
               'Nenhuma solicitação pendente nesta van.',
@@ -298,13 +329,30 @@ class _SecaoSolicitacoes extends StatelessWidget {
             ),
           )
         else
-          for (final aluno in solicitacoes)
+          for (final aluno in ordenadas)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: VangoCard(
+                color: aluno.id == solicitacaoSelecionadaId
+                    ? AppColors.accentSoft
+                    : AppColors.surface,
+                borderColor: aluno.id == solicitacaoSelecionadaId
+                    ? AppColors.accent
+                    : AppColors.divider,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (aluno.id == solicitacaoSelecionadaId) ...[
+                      Text(
+                        'Solicitação selecionada',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xxs),
+                    ],
                     Row(
                       children: [
                         Expanded(

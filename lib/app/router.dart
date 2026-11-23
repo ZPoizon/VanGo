@@ -9,10 +9,12 @@ import 'package:vango/features/auth/login_screen.dart';
 import 'package:vango/features/auth/signup_choice_screen.dart';
 import 'package:vango/features/auth/signup_success_screen.dart';
 import 'package:vango/features/driver/daily_list/daily_list_screen.dart';
+import 'package:vango/features/driver/dashboard/driver_dashboard_screen.dart';
 import 'package:vango/features/driver/history/history_detail_screen.dart';
 import 'package:vango/features/driver/history/history_screen.dart';
 import 'package:vango/features/driver/home/driver_home_screen.dart';
 import 'package:vango/features/driver/profile/driver_profile_screen.dart';
+import 'package:vango/features/driver/requests/driver_requests_screen.dart';
 import 'package:vango/features/driver/students/invite_screen.dart';
 import 'package:vango/features/driver/students/student_detail_screen.dart';
 import 'package:vango/features/driver/students/students_screen.dart';
@@ -95,20 +97,22 @@ GoRouter criarRouter(VanGoStore store) {
       // aprovação, independentemente de já ter ou não um grupoId.
       final alunoAprovado = !isDriver && usuario?.podeAcessar == true;
 
-      // O motorista sempre começa pelo gerenciador de vans. Cada van possui
-      // seu próprio painel; o vínculo do perfil é apenas o grupo legado.
+      // O motorista entra pelo dashboard geral, mesmo sem vans. O painel
+      // operacional continua sendo /driver/home, sempre da van selecionada.
       if (isDriver &&
           (loc == '/login' ||
               loc == '/' ||
               loc.startsWith('/student') ||
               loc.startsWith('/signup/'))) {
-        return '/driver/vans';
+        return '/driver/dashboard';
       }
 
-      final home = isDriver ? '/driver/home' : '/student/home';
+      final home = isDriver ? '/driver/dashboard' : '/student/home';
 
+      // Sem van não existe painel operacional: volta ao dashboard, que oferece
+      // a criação da primeira van sem redirecionar automaticamente.
       if (isDriver && semVan && loc == '/driver/home') {
-        return '/driver/vans';
+        return '/driver/dashboard';
       }
 
       if (isDriver) {
@@ -166,8 +170,16 @@ GoRouter criarRouter(VanGoStore store) {
         ),
       ),
       GoRoute(
+        path: '/driver/dashboard',
+        builder: (context, state) => const DriverDashboardScreen(),
+      ),
+      GoRoute(
         path: '/driver/home',
         builder: (context, state) => const DriverHomeScreen(),
+      ),
+      GoRoute(
+        path: '/driver/requests',
+        builder: (context, state) => const DriverRequestsScreen(),
       ),
       GoRoute(
         path: '/driver/vans',
@@ -175,12 +187,16 @@ GoRouter criarRouter(VanGoStore store) {
         routes: <RouteBase>[
           GoRoute(
             path: 'new',
-            builder: (context, state) => const CreateVanScreen(),
+            builder: (context, state) => CreateVanScreen(
+              rotaRetorno: state.uri.queryParameters['retorno'],
+            ),
           ),
           GoRoute(
             path: ':id',
-            builder: (context, state) =>
-                VanDetailScreen(grupoId: state.pathParameters['id'] ?? ''),
+            builder: (context, state) => VanDetailScreen(
+              grupoId: state.pathParameters['id'] ?? '',
+              solicitacaoId: state.uri.queryParameters['solicitacaoId'],
+            ),
           ),
         ],
       ),

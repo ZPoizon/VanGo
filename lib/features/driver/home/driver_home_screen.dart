@@ -52,20 +52,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     });
   }
 
-  Future<void> _encerrarViagem() async {
+  Future<void> _concluirViagem() async {
     final viagem = StoreScope.read(context).viagemAtual;
     if (viagem == null) return;
     final confirmar = await confirmarAcao(
       context,
-      titulo: 'Encerrar viagem de ${viagem.sentido.label}?',
+      titulo: 'Concluir viagem de ${viagem.sentido.label}?',
       mensagem: viagem.sentido == SentidoViagem.ida
-          ? 'A chamada continuará encerrada e a viagem de volta poderá ser '
-                'iniciada em seguida.'
-          : 'A viagem de volta será concluída e uma nova chamada poderá ser '
-                'aberta.',
-      confirmarLabel: 'Encerrar viagem',
-      destrutivo: true,
-      icone: Icons.stop_circle_outlined,
+          ? 'A ida será registrada como concluída e a viagem de volta poderá '
+                'ser iniciada em seguida.'
+          : 'A volta será registrada como concluída e uma nova chamada poderá '
+                'ser aberta.',
+      confirmarLabel: 'Concluir viagem',
+      icone: Icons.check_circle_outline_rounded,
     );
     if (!confirmar || !mounted) return;
 
@@ -155,7 +154,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               onCancelarChamada: _cancelarChamada,
               onIniciarIda: () => _iniciarViagem(SentidoViagem.ida),
               onIniciarVolta: () => _iniciarViagem(SentidoViagem.volta),
-              onEncerrarViagem: _encerrarViagem,
+              onConcluirViagem: _concluirViagem,
               onCancelarViagem: _cancelarViagem,
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -238,6 +237,45 @@ class _CabecalhoMotorista extends StatelessWidget {
   }
 }
 
+/// Resume o que já aconteceu na chamada/viagem ativa sem consultar dados de
+/// outras vans. Usado pelo cartão de estado e pelas ações operacionais.
+class _EstadoViagens {
+  const _EstadoViagens({
+    required this.idaConcluida,
+    required this.voltaConcluida,
+    required this.cancelada,
+  });
+
+  factory _EstadoViagens.de(VanGoStore store, String? chamadaId) {
+    final id =
+        chamadaId ??
+        (store.historico.isEmpty ? null : store.historico.first.chamadaId);
+    final doServico = id == null
+        ? <Viagem>[]
+        : store.historico.where((viagem) => viagem.chamadaId == id).toList();
+    return _EstadoViagens(
+      idaConcluida: doServico.any(
+        (viagem) =>
+            viagem.sentido == SentidoViagem.ida && viagem.concluida,
+      ),
+      voltaConcluida: doServico.any(
+        (viagem) =>
+            viagem.sentido == SentidoViagem.volta && viagem.concluida,
+      ),
+      cancelada:
+          store.chamadaAmanha?.cancelada == true ||
+          doServico.any((viagem) => viagem.cancelada),
+    );
+  }
+
+  final bool idaConcluida;
+  final bool voltaConcluida;
+  final bool cancelada;
+
+  bool get operacaoConcluida => voltaConcluida;
+  bool get podeIniciarVolta => idaConcluida && !voltaConcluida && !cancelada;
+}
+
 class _CartaoOperacao extends StatelessWidget {
   const _CartaoOperacao({required this.store});
 
@@ -248,6 +286,7 @@ class _CartaoOperacao extends StatelessWidget {
     final chamada = store.chamadaAmanha;
     final viagem = store.viagemAtual;
     final emViagem = viagem?.status == StatusViagem.emAndamento;
+    final estado = _EstadoViagens.de(store, chamada?.id);
 
     return VangoCard(
       child: Column(
@@ -258,9 +297,12 @@ class _CartaoOperacao extends StatelessWidget {
               _StatusDot(
                 cor: emViagem
                     ? AppColors.accent
+                    : estado.operacaoConcluida
+                    ? AppColors.success
                     : chamada?.aberta == true
                     ? AppColors.success
-                    : chamada?.status == StatusChamada.cancelada
+                    : chamada?.status == StatusChamada.cancelada ||
+                            estado.cancelada
                     ? AppColors.error
                     : AppColors.muted,
               ),
@@ -277,6 +319,20 @@ class _CartaoOperacao extends StatelessWidget {
               const Spacer(),
               if (emViagem)
                 StatusChip.viagem(viagem!.status, compact: true)
+              else if (estado.operacaoConcluida)
+                const StatusChip(
+                  label: 'Concluída',
+                  tone: VangoTone.success,
+                  icon: Icons.check_circle_outline_rounded,
+                  compact: true,
+                )
+              else if (estado.cancelada)
+                const StatusChip(
+                  label: 'Cancelada',
+                  tone: VangoTone.error,
+                  icon: Icons.cancel_outlined,
+                  compact: true,
+                )
               else if (chamada != null)
                 StatusChip.chamada(chamada.status, compact: true),
             ],
@@ -285,12 +341,18 @@ class _CartaoOperacao extends StatelessWidget {
           Text(
             emViagem
                 ? 'Viagem de ${viagem!.sentido.label.toLowerCase()} em andamento'
+                : estado.operacaoConcluida
+                ? 'Operação concluída com sucesso'
                 : chamada == null
                 ? 'Nenhuma chamada aberta'
                 : chamada.aberta
                 ? 'Chamada aberta para amanhã'
                 : chamada.status == StatusChamada.cancelada
                 ? 'Chamada cancelada'
+                : estado.cancelada
+                ? 'Viagem cancelada'
+                : estado.idaConcluida
+                ? 'Ida concluída · volta pendente'
                 : 'Chamada encerrada',
             style: const TextStyle(
               fontSize: 20,
@@ -302,6 +364,8 @@ class _CartaoOperacao extends StatelessWidget {
           Text(
             emViagem
                 ? 'Iniciada às ${formatarHoraTexto(viagem!.iniciadaEm == null ? null : formatarHora(viagem.iniciadaEm!))} · ${viagem.totalConfirmados} aluno(s) no sentido'
+                : estado.operacaoConcluida
+                ? 'Ida e volta registradas no histórico. Uma nova chamada já pode ser aberta.'
                 : chamada == null
                 ? 'Abra a chamada para receber as respostas de amanhã.'
                 : chamada.status == StatusChamada.cancelada
@@ -309,12 +373,18 @@ class _CartaoOperacao extends StatelessWidget {
                           chamada.motivoCancelamento!.isNotEmpty
                       ? 'Motivo: ${chamada.motivoCancelamento}'
                       : 'Serviço de ${formatarDataCurta(chamada.dataServico)} cancelado.')
+                : estado.cancelada
+                ? 'A viagem foi cancelada e registrada no histórico.'
+                : estado.idaConcluida
+                ? 'A viagem de ida foi concluída. Inicie a volta para finalizar a operação.'
                 : 'Serviço de ${formatarDataCurta(chamada.dataServico)} · '
                       '${store.totalRespostas} de ${store.presencasChamada.length} responderam',
             style: const TextStyle(fontSize: 12, color: AppColors.muted),
           ),
           if (chamada != null &&
               !emViagem &&
+              !estado.operacaoConcluida &&
+              !estado.cancelada &&
               chamada.status != StatusChamada.cancelada) ...[
             const Divider(height: AppSpacing.lg),
             Row(
@@ -392,7 +462,7 @@ class _AcoesOperacao extends StatelessWidget {
     required this.onCancelarChamada,
     required this.onIniciarIda,
     required this.onIniciarVolta,
-    required this.onEncerrarViagem,
+    required this.onConcluirViagem,
     required this.onCancelarViagem,
   });
 
@@ -403,7 +473,7 @@ class _AcoesOperacao extends StatelessWidget {
   final VoidCallback onCancelarChamada;
   final VoidCallback onIniciarIda;
   final VoidCallback onIniciarVolta;
-  final VoidCallback onEncerrarViagem;
+  final VoidCallback onConcluirViagem;
   final VoidCallback onCancelarViagem;
 
   @override
@@ -411,19 +481,32 @@ class _AcoesOperacao extends StatelessWidget {
     final chamada = store.chamadaAmanha;
     final viagem = store.viagemAtual;
     final emViagem = viagem?.status == StatusViagem.emAndamento;
+    final estado = _EstadoViagens.de(store, chamada?.id);
 
     if (emViagem) {
       return Column(
         children: [
           VangoButton(
-            label: 'Estou chegando',
-            icon: Icons.notifications_active_outlined,
-            variant: VangoButtonVariant.accent,
-            onPressed: () => context.push('/driver/trips/${viagem!.id}/notify'),
+            label: 'Concluir viagem',
+            icon: Icons.check_circle_outline_rounded,
+            variant: VangoButtonVariant.success,
+            loading: processando,
+            onPressed: onConcluirViagem,
           ),
           const SizedBox(height: AppSpacing.xs),
           Row(
             children: [
+              Expanded(
+                child: VangoButton(
+                  label: 'Estou chegando',
+                  icon: Icons.notifications_active_outlined,
+                  variant: VangoButtonVariant.accent,
+                  height: 48,
+                  onPressed: () =>
+                      context.push('/driver/trips/${viagem!.id}/notify'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: VangoButton(
                   label: 'Ver lista',
@@ -431,16 +514,6 @@ class _AcoesOperacao extends StatelessWidget {
                   variant: VangoButtonVariant.outline,
                   height: 48,
                   onPressed: () => context.push('/driver/daily-list'),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: VangoButton(
-                  label: 'Encerrar',
-                  icon: Icons.stop_circle_outlined,
-                  variant: VangoButtonVariant.danger,
-                  height: 48,
-                  onPressed: processando ? null : onEncerrarViagem,
                 ),
               ),
             ],
@@ -457,12 +530,34 @@ class _AcoesOperacao extends StatelessWidget {
       );
     }
 
-    if (chamada == null || chamada.status == StatusChamada.cancelada) {
-      return VangoButton(
-        label: 'Abrir chamada de amanhã',
-        icon: Icons.campaign_outlined,
-        loading: processando,
-        onPressed: onAbrir,
+    if (chamada == null ||
+        chamada.status == StatusChamada.cancelada ||
+        estado.operacaoConcluida ||
+        estado.cancelada) {
+      return Column(
+        children: [
+          if (estado.operacaoConcluida) ...[
+            const Text(
+              'Ida e volta concluídas com sucesso.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.success),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ] else if (estado.cancelada) ...[
+            const Text(
+              'Viagem cancelada. O serviço foi registrado no histórico.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.error),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          VangoButton(
+            label: 'Abrir chamada de amanhã',
+            icon: Icons.campaign_outlined,
+            loading: processando,
+            onPressed: onAbrir,
+          ),
+        ],
       );
     }
 
@@ -489,7 +584,7 @@ class _AcoesOperacao extends StatelessWidget {
               const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: VangoButton(
-                  label: 'Cancelar',
+                  label: 'Cancelar chamada',
                   icon: Icons.cancel_outlined,
                   variant: VangoButtonVariant.outline,
                   loading: processando,
@@ -505,33 +600,21 @@ class _AcoesOperacao extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Chamada encerrada. Escolha o sentido para iniciar a viagem.',
+        Text(
+          estado.podeIniciarVolta
+              ? 'Ida concluída. Inicie a volta para finalizar a operação.'
+              : 'Chamada encerrada. Inicie a viagem de ida.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: AppColors.muted),
+          style: const TextStyle(fontSize: 12, color: AppColors.muted),
         ),
         const SizedBox(height: AppSpacing.xs),
-        Row(
-          children: [
-            Expanded(
-              child: VangoButton(
-                label: 'Iniciar IDA',
-                icon: Icons.arrow_upward_rounded,
-                loading: processando,
-                onPressed: onIniciarIda,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.xs),
-            Expanded(
-              child: VangoButton(
-                label: 'Iniciar VOLTA',
-                icon: Icons.arrow_downward_rounded,
-                variant: VangoButtonVariant.outline,
-                loading: processando,
-                onPressed: onIniciarVolta,
-              ),
-            ),
-          ],
+        VangoButton(
+          label: estado.podeIniciarVolta ? 'Iniciar VOLTA' : 'Iniciar IDA',
+          icon: estado.podeIniciarVolta
+              ? Icons.arrow_downward_rounded
+              : Icons.arrow_upward_rounded,
+          loading: processando,
+          onPressed: estado.podeIniciarVolta ? onIniciarVolta : onIniciarIda,
         ),
         const SizedBox(height: AppSpacing.xs),
         VangoButton(

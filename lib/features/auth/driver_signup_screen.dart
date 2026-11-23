@@ -24,8 +24,11 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   final _email = TextEditingController();
   final _telefone = TextEditingController();
   final _senha = TextEditingController();
+  final _confirmarSenha = TextEditingController();
 
   bool _carregando = false;
+  bool _mostrarSenha = false;
+  bool _mostrarConfirmacao = false;
 
   @override
   void dispose() {
@@ -33,12 +36,18 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
     _email.dispose();
     _telefone.dispose();
     _senha.dispose();
+    _confirmarSenha.dispose();
     super.dispose();
   }
 
   Future<void> _enviar() async {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // Segunda barreira: a confirmação nunca é enviada ao Firebase.
+    if (_confirmarSenha.text != _senha.text) {
+      mostrarToast(context, 'As senhas não coincidem.', erro: true);
+      return;
+    }
 
     setState(() => _carregando = true);
 
@@ -59,7 +68,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
 
     if (!context.mounted) return;
     mostrarToast(context, 'Conta de motorista criada com sucesso!');
-    context.go('/driver/vans');
+    context.go('/driver/dashboard');
   }
 
   @override
@@ -123,8 +132,41 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                 controller: _senha,
                 label: 'Senha de acesso',
                 hint: 'Mínimo de 6 caracteres',
-                obscureText: true,
+                obscureText: !_mostrarSenha,
                 validator: validarSenha,
+                suffixIcon: IconButton(
+                  tooltip: _mostrarSenha ? 'Ocultar senha' : 'Mostrar senha',
+                  icon: Icon(
+                    _mostrarSenha
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                  ),
+                  onPressed: () =>
+                      setState(() => _mostrarSenha = !_mostrarSenha),
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              VangoTextField(
+                controller: _confirmarSenha,
+                label: 'Confirmar senha',
+                hint: 'Repita a senha',
+                obscureText: !_mostrarConfirmacao,
+                validator: (valor) =>
+                    validarConfirmacaoSenha(valor, _senha.text),
+                suffixIcon: IconButton(
+                  tooltip: _mostrarConfirmacao
+                      ? 'Ocultar confirmação'
+                      : 'Mostrar confirmação',
+                  icon: Icon(
+                    _mostrarConfirmacao
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                  ),
+                  onPressed: () => setState(
+                    () => _mostrarConfirmacao = !_mostrarConfirmacao,
+                  ),
+                ),
                 textInputAction: TextInputAction.done,
               ),
               const SizedBox(height: AppSpacing.lg),

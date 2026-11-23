@@ -6,6 +6,7 @@ import 'package:vango/app/theme/app_spacing.dart';
 import 'package:vango/core/store_scope.dart';
 import 'package:vango/core/validadores.dart';
 import 'package:vango/core/widgets/feedback.dart';
+import 'package:vango/core/widgets/profile_photo_sheet.dart';
 import 'package:vango/core/widgets/vango_app_bar.dart';
 import 'package:vango/core/widgets/vango_avatar.dart';
 import 'package:vango/core/widgets/vango_button.dart';
@@ -84,6 +85,23 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     }
   }
 
+  Future<void> _alterarFoto() async {
+    final store = StoreScope.read(context);
+    final alterou = await mostrarEditorFotoPerfil(
+      context,
+      possuiFoto: _usuario.fotoUrl != null,
+      salvar: store.atualizarFotoPerfil,
+      remover: store.removerFotoPerfil,
+    );
+    if (!alterou || !mounted) return;
+    final atualizado = StoreScope.read(context).usuarioAtual;
+    if (atualizado == null) return;
+    setState(() {
+      _usuario = atualizado;
+      _usuarioOriginal = atualizado;
+    });
+  }
+
   Future<void> _salvarSenha() async {
     final resultado = await StoreScope.read(context)
         .alterarSenha(senhaAtual: _senhaAtual.text, novaSenha: _novaSenha.text);
@@ -130,11 +148,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       icon: Icons.photo_camera_outlined,
                       variant: VangoButtonVariant.ghost,
                       height: 44,
-                      onPressed: () => mostrarToast(
-                        context,
-                        'A seleção de foto será integrada ao Firebase Storage '
-                        'na Etapa 3.',
-                      ),
+                      onPressed: _alterarFoto,
                     ),
                   ],
                 ),

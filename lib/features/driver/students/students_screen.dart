@@ -84,6 +84,11 @@ class _StudentsScreenState extends State<StudentsScreen> {
                       icon: Icon(Icons.wb_sunny_outlined),
                     ),
                     ButtonSegment(
+                      value: Turno.vespertino,
+                      label: Text('Vespertino'),
+                      icon: Icon(Icons.wb_twilight_outlined),
+                    ),
+                    ButtonSegment(
                       value: Turno.noturno,
                       label: Text('Noturno'),
                       icon: Icon(Icons.nights_stay_outlined),

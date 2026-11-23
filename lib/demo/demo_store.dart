@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../core/resultado.dart';
@@ -6,6 +7,7 @@ import '../core/selecao_grupo_store.dart';
 import '../core/store.dart';
 import '../models/chamada.dart';
 import '../models/grupo.dart';
+import '../models/notificacao_entrada.dart';
 import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
@@ -239,6 +241,8 @@ class DemoStore extends VanGoStore {
     required Turno turno,
     required String endereco,
     required String senha,
+    String? cep,
+    String? turnoPersonalizado,
   }) async {
     final normalizado = email.trim().toLowerCase();
     if (_usuarios.any((u) => u.email.toLowerCase() == normalizado)) {
@@ -257,7 +261,9 @@ class DemoStore extends VanGoStore {
       telefone: telefone.trim(),
       instituicao: instituicao.trim(),
       turno: turno,
+      turnoPersonalizado: turnoPersonalizado?.trim(),
       enderecoEmbarque: endereco.trim(),
+      cep: cep?.trim().isNotEmpty == true ? cep!.trim() : null,
       criadoEm: agora,
     );
     _usuarios.add(aluno);
@@ -454,6 +460,17 @@ class DemoStore extends VanGoStore {
   @override
   List<NotificacaoResposta> get notificacoesResposta =>
       List<NotificacaoResposta>.unmodifiable(_notificacoesResposta);
+
+  // O modo demonstração não participa da Fase 5B: os avisos persistidos e o
+  // contador reativo são exclusivos do FirebaseStore/emulador.
+  @override
+  List<NotificacaoEntrada> get notificacoesEntrada =>
+      const <NotificacaoEntrada>[];
+
+  @override
+  Map<String, int> get pendentesPorGrupo => <String, int>{
+    for (final grupo in meusGrupos) grupo.id: 0,
+  };
 
   @override
   Future<OperacaoResultado> abrirChamada() async {
@@ -671,15 +688,26 @@ class DemoStore extends VanGoStore {
       return const OperacaoResultado.erro('Já existe uma viagem em andamento.');
     }
 
-    final viagemCanceladaAnterior = _historico.any(
+    final viagemRegistradaAnterior = _historico.any(
       (v) =>
           v.chamadaId == chamada.id &&
           v.sentido == sentido &&
-          v.status == StatusViagem.cancelada,
+          (v.concluida || v.cancelada),
     );
-    if (viagemCanceladaAnterior) {
+    if (viagemRegistradaAnterior) {
       return OperacaoResultado.erro(
-        'A viagem de ${sentido.label.toLowerCase()} desta chamada foi cancelada e não pode ser iniciada.',
+        'A viagem de ${sentido.label.toLowerCase()} desta chamada já foi registrada e não pode ser iniciada novamente.',
+      );
+    }
+    if (sentido == SentidoViagem.volta &&
+        !_historico.any(
+          (v) =>
+              v.chamadaId == chamada.id &&
+              v.sentido == SentidoViagem.ida &&
+              v.concluida,
+        )) {
+      return const OperacaoResultado.erro(
+        'Conclua a viagem de ida antes de iniciar a volta.',
       );
     }
 
@@ -746,8 +774,8 @@ class DemoStore extends VanGoStore {
     notifyListeners();
     return OperacaoResultado.ok(
       viagem.sentido == SentidoViagem.volta
-          ? 'Viagem de volta encerrada. Uma nova chamada já pode ser aberta.'
-          : 'Viagem de ida encerrada. A volta pode ser iniciada.',
+          ? 'Viagem de volta concluída com sucesso. Uma nova chamada já pode ser aberta.'
+          : 'Viagem de ida concluída com sucesso. A volta pode ser iniciada.',
     );
   }
 
@@ -972,6 +1000,8 @@ class DemoStore extends VanGoStore {
     required String endereco,
     required String senha,
     required Turno turno,
+    String? cep,
+    String? turnoPersonalizado,
     String? conviteToken,
   }) async {
     final normalizado = email.trim().toLowerCase();
@@ -990,7 +1020,9 @@ class DemoStore extends VanGoStore {
       telefone: telefone.trim(),
       instituicao: instituicao,
       turno: turno,
+      turnoPersonalizado: turnoPersonalizado?.trim(),
       enderecoEmbarque: endereco.trim(),
+      cep: cep?.trim().isNotEmpty == true ? cep!.trim() : null,
       criadoEm: agora,
     );
     _usuarios.add(aluno);
@@ -1032,6 +1064,26 @@ class DemoStore extends VanGoStore {
           (aluno) =>
               aluno.perfil == PerfilUsuario.aluno &&
               aluno.status == StatusConta.ativo &&
+              aluno.grupoId == grupoId,
+        )
+        .length;
+  }
+
+  @override
+  Future<int?> contarSolicitacoesGrupo(String grupoId) async {
+    final motorista = _usuarioAtual;
+    if (motorista == null || motorista.perfil != PerfilUsuario.motorista) {
+      return null;
+    }
+    final grupo = await buscarGrupoPorId(grupoId);
+    if (grupo == null || grupo.motoristaId != motorista.id) return null;
+    // Não altera _solicitacoes: a contagem de várias vans não pode sobrescrever
+    // o snapshot compartilhado usado pelo painel operacional.
+    return _usuarios
+        .where(
+          (aluno) =>
+              aluno.perfil == PerfilUsuario.aluno &&
+              aluno.status == StatusConta.pendente &&
               aluno.grupoId == grupoId,
         )
         .length;
@@ -1260,8 +1312,10 @@ class DemoStore extends VanGoStore {
     required String telefone,
     String? instituicao,
     String? endereco,
+    String? cep,
     String? referencia,
     Turno? turno,
+    String? turnoPersonalizado,
     String? fotoUrl,
   }) async {
     final usuario = _usuarioAtual;
@@ -1273,8 +1327,12 @@ class DemoStore extends VanGoStore {
       telefone: telefone.trim(),
       instituicao: instituicao?.trim(),
       enderecoEmbarque: endereco?.trim(),
+      cep: cep?.trim(),
+      limparCep: cep != null && cep.trim().isEmpty,
       referenciaEndereco: referencia?.trim(),
       turno: turno,
+      turnoPersonalizado: turnoPersonalizado?.trim(),
+      limparTurnoPersonalizado: turno != null && turno != Turno.outro,
       fotoUrl: fotoUrl,
     );
     final indice = _usuarios.indexWhere((u) => u.id == usuario.id);
@@ -1311,9 +1369,29 @@ class DemoStore extends VanGoStore {
     if (usuario == null) {
       return const OperacaoResultado.erro('Sessão expirada.');
     }
-    return const OperacaoResultado.ok(
-      'Foto atualizada (simulação). No Firebase a imagem vai para o Storage.',
+    // Modo demo: apenas prévia em memória. Nada é gravado no Firestore.
+    final atualizado = usuario.copyWith(
+      fotoUrl: 'data:image/jpeg;base64,${base64Encode(bytes)}',
     );
+    final indice = _usuarios.indexWhere((u) => u.id == usuario.id);
+    if (indice >= 0) _usuarios[indice] = atualizado;
+    _usuarioAtual = atualizado;
+    notifyListeners();
+    return const OperacaoResultado.ok('Foto atualizada (modo demonstração).');
+  }
+
+  @override
+  Future<OperacaoResultado> removerFotoPerfil() async {
+    final usuario = _usuarioAtual;
+    if (usuario == null) {
+      return const OperacaoResultado.erro('Sessão expirada.');
+    }
+    final atualizado = usuario.copyWith(limparFotoUrl: true);
+    final indice = _usuarios.indexWhere((u) => u.id == usuario.id);
+    if (indice >= 0) _usuarios[indice] = atualizado;
+    _usuarioAtual = atualizado;
+    notifyListeners();
+    return const OperacaoResultado.ok('Foto removida.');
   }
 
   // ------------------------------------------------------------------ extras

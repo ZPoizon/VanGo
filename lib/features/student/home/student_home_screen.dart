@@ -340,6 +340,12 @@ class _AvisoChegadaCard extends StatelessWidget {
         ? store.historico.first
         : null;
     final destino = ativa ? viagem!.id : '';
+    final ultimaViagemConcluida =
+        store.historico.isNotEmpty &&
+            store.historico.first.concluida &&
+            !ativa
+        ? store.historico.first
+        : null;
 
     if (ultimaViagemCancelada != null) {
       return VangoCard(
@@ -378,6 +384,53 @@ class _AvisoChegadaCard extends StatelessWidget {
                             ultimaViagemCancelada.motivoCancelamento!.isNotEmpty
                         ? 'Motivo: ${ultimaViagemCancelada.motivoCancelamento}'
                         : 'A viagem foi cancelada pelo motorista.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (ultimaViagemConcluida != null) {
+      return VangoCard(
+        color: AppColors.successSoft,
+        borderColor: AppColors.success,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.success,
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              child: const Icon(
+                Icons.check_circle_outline_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Viagem de ${ultimaViagemConcluida.sentido.label.toLowerCase()} concluída com sucesso',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'A operação foi registrada no histórico.',
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.muted,

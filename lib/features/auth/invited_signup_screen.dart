@@ -27,11 +27,12 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
   final _nome = TextEditingController();
   final _email = TextEditingController();
   final _telefone = TextEditingController();
+  final _instituicao = TextEditingController();
   final _endereco = TextEditingController();
+  final _cep = TextEditingController();
   final _senha = TextEditingController();
-  final _outraInstituicao = TextEditingController();
+  final _turnoPersonalizado = TextEditingController();
 
-  String _instituicao = 'Fatec';
   late Turno _turno;
   bool _carregando = false;
 
@@ -59,9 +60,11 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
     _nome.dispose();
     _email.dispose();
     _telefone.dispose();
+    _instituicao.dispose();
     _endereco.dispose();
+    _cep.dispose();
     _senha.dispose();
-    _outraInstituicao.dispose();
+    _turnoPersonalizado.dispose();
     super.dispose();
   }
 
@@ -69,11 +72,12 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final instituicao = _instituicao == 'Outra'
-        ? _outraInstituicao.text.trim()
-        : _instituicao;
-    if (_instituicao == 'Outra' && instituicao.isEmpty) {
-      mostrarToast(context, 'Informe o nome da instituição.', erro: true);
+    final instituicao = _instituicao.text.trim();
+    final turnoPersonalizado = _turno == Turno.outro
+        ? _turnoPersonalizado.text.trim()
+        : null;
+    if (turnoPersonalizado != null && turnoPersonalizado.isEmpty) {
+      mostrarToast(context, 'Informe o turno personalizado.', erro: true);
       return;
     }
 
@@ -87,8 +91,10 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
             telefone: _telefone.text,
             instituicao: instituicao,
             endereco: _endereco.text,
+            cep: _cep.text.trim(),
             senha: _senha.text,
             turno: _turno,
+            turnoPersonalizado: turnoPersonalizado,
           )
         : await store.enviarSolicitacao(
             nome: _nome.text,
@@ -96,8 +102,10 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
             telefone: _telefone.text,
             instituicao: instituicao,
             endereco: _endereco.text,
+            cep: _cep.text.trim(),
             senha: _senha.text,
             turno: _turno,
+            turnoPersonalizado: turnoPersonalizado,
             conviteToken: widget.token,
           );
     if (!mounted) return;
@@ -174,27 +182,30 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: AppSpacing.md),
-              _CampoInstituicao(
-                valor: _instituicao,
-                onChanged: (valor) => setState(() => _instituicao = valor),
-              ),
-              if (_instituicao == 'Outra') ...[
-                const SizedBox(height: AppSpacing.md),
-                VangoTextField(
-                  controller: _outraInstituicao,
-                  label: 'Outra instituição',
-                  hint: 'Nome da instituição',
-                  validator: (valor) =>
-                      validarObrigatorio(valor, 'a instituição'),
-                  textInputAction: TextInputAction.next,
-                ),
-              ],
+              _CampoInstituicao(controller: _instituicao),
               const SizedBox(height: AppSpacing.md),
               VangoTextField(
                 controller: _endereco,
                 label: 'Endereço de embarque',
                 hint: 'Rua, número e referência',
                 validator: validarEndereco,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              VangoTextField(
+                controller: _cep,
+                label: 'CEP',
+                hint: '00000-000',
+                keyboardType: TextInputType.number,
+                validator: validarCep,
+                onChanged: (valor) {
+                  final formatado = aplicarMascaraCep(valor);
+                  if (formatado == valor) return;
+                  _cep.value = TextEditingValue(
+                    text: formatado,
+                    selection: TextSelection.collapsed(offset: formatado.length),
+                  );
+                },
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: AppSpacing.md),
@@ -207,25 +218,37 @@ class _InvitedSignupScreenState extends State<InvitedSignupScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TurnoOpcao(
-                      label: 'Matutino',
-                      selecionado: _turno == Turno.matutino,
-                      onTap: () => setState(() => _turno = Turno.matutino),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: _TurnoOpcao(
-                      label: 'Noturno',
-                      selecionado: _turno == Turno.noturno,
-                      onTap: () => setState(() => _turno = Turno.noturno),
-                    ),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final largura = (constraints.maxWidth - AppSpacing.xs) / 2;
+                  return Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      for (final opcao in Turno.values)
+                        SizedBox(
+                          width: largura,
+                          child: _TurnoOpcao(
+                            label: opcao.label,
+                            selecionado: _turno == opcao,
+                            onTap: () => setState(() => _turno = opcao),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
+              if (_turno == Turno.outro) ...[
+                const SizedBox(height: AppSpacing.md),
+                VangoTextField(
+                  controller: _turnoPersonalizado,
+                  label: 'Turno personalizado',
+                  hint: 'Ex.: Integrado',
+                  validator: (valor) =>
+                      validarObrigatorio(valor, 'o turno personalizado'),
+                  textInputAction: TextInputAction.next,
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               VangoTextField(
                 controller: _senha,
@@ -306,41 +329,48 @@ class _TurnoOpcao extends StatelessWidget {
   }
 }
 
+/// Campo livre com sugestões opcionais: o aluno pode digitar qualquer
+/// instituição e não existe valor pré-selecionado.
 class _CampoInstituicao extends StatelessWidget {
-  const _CampoInstituicao({required this.valor, required this.onChanged});
+  const _CampoInstituicao({required this.controller});
 
-  final String valor;
-  final ValueChanged<String> onChanged;
+  final TextEditingController controller;
 
   @override
   Widget build(BuildContext context) {
+    final sugestoes = DemoData.instituicoes
+        .where((nome) => nome.trim().isNotEmpty && nome != 'Outra')
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Instituição',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.text,
-          ),
+        VangoTextField(
+          controller: controller,
+          label: 'Instituição',
+          hint: 'Digite o nome da instituição',
+          validator: (valor) => validarObrigatorio(valor, 'a instituição'),
+          textInputAction: TextInputAction.next,
         ),
         const SizedBox(height: AppSpacing.xs),
-        DropdownButtonFormField<String>(
-          initialValue: valor,
-          isExpanded: true,
-          decoration: const InputDecoration(hintText: 'Selecione'),
-          items: DemoData.instituicoes
-              .map(
-                (instituicao) => DropdownMenuItem<String>(
-                  value: instituicao,
-                  child: Text(instituicao),
-                ),
-              )
-              .toList(),
-          onChanged: (novo) {
-            if (novo != null) onChanged(novo);
-          },
+        const Text(
+          'Sugestões (opcional)',
+          style: TextStyle(fontSize: 11, color: AppColors.muted),
+        ),
+        const SizedBox(height: AppSpacing.xxs),
+        Wrap(
+          spacing: AppSpacing.xs,
+          children: [
+            for (final nome in sugestoes)
+              ActionChip(
+                label: Text(nome, style: const TextStyle(fontSize: 11)),
+                onPressed: () {
+                  controller.text = nome;
+                  controller.selection = TextSelection.collapsed(
+                    offset: nome.length,
+                  );
+                },
+              ),
+          ],
         ),
       ],
     );

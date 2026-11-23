@@ -158,10 +158,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ? EstadoView(
                       titulo: temFiltroAtivo
                           ? 'Nenhuma viagem encontrada'
-                          : 'Nenhuma viagem encerrada',
+                          : 'Nenhuma viagem registrada',
                       mensagem: temFiltroAtivo
                           ? 'Tente ajustar os filtros selecionados acima.'
-                          : 'Quando as viagens forem encerradas, o histórico aparecerá aqui.',
+                          : 'Viagens concluídas e canceladas aparecerão aqui.',
                     )
                   : ListView(
                       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -199,7 +199,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                           Text(
                                             formatarIntervalo(
                                               viagem.iniciadaEm,
-                                              viagem.encerradaEm,
+                                              viagem.encerradaEm ??
+                                                  viagem.canceladaEm,
                                             ),
                                             style: const TextStyle(
                                               fontSize: 12,

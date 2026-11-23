@@ -6,6 +6,7 @@ import 'package:vango/app/theme/app_spacing.dart';
 import 'package:vango/core/store_scope.dart';
 import 'package:vango/core/validadores.dart';
 import 'package:vango/core/widgets/feedback.dart';
+import 'package:vango/core/widgets/profile_photo_sheet.dart';
 import 'package:vango/core/widgets/vango_app_bar.dart';
 import 'package:vango/core/widgets/vango_avatar.dart';
 import 'package:vango/core/widgets/vango_button.dart';
@@ -25,11 +26,12 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nome = TextEditingController();
   final _telefone = TextEditingController();
+  final _instituicao = TextEditingController();
   final _endereco = TextEditingController();
+  final _cep = TextEditingController();
   final _referencia = TextEditingController();
-  final _outraInstituicao = TextEditingController();
+  final _turnoPersonalizado = TextEditingController();
 
-  String _instituicao = 'Fatec';
   Turno _turno = Turno.matutino;
   bool _salvando = false;
   bool _alterandoSenha = false;
@@ -52,9 +54,11 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   void dispose() {
     _nome.dispose();
     _telefone.dispose();
+    _instituicao.dispose();
     _endereco.dispose();
+    _cep.dispose();
     _referencia.dispose();
-    _outraInstituicao.dispose();
+    _turnoPersonalizado.dispose();
     _senhaAtual.dispose();
     _novaSenha.dispose();
     super.dispose();
@@ -63,20 +67,12 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   void _aplicarUsuario(Usuario usuario) {
     _nome.text = usuario.nome;
     _telefone.text = usuario.telefone ?? '';
+    _instituicao.text = usuario.instituicao ?? '';
     _endereco.text = usuario.enderecoEmbarque ?? '';
+    _cep.text = usuario.cep ?? '';
     _referencia.text = usuario.referenciaEndereco ?? '';
     _turno = usuario.turno ?? Turno.matutino;
-    final instituicao = usuario.instituicao;
-    if (instituicao != null && DemoData.instituicoes.contains(instituicao)) {
-      _instituicao = instituicao;
-      _outraInstituicao.clear();
-    } else if (instituicao != null && instituicao.isNotEmpty) {
-      _instituicao = 'Outra';
-      _outraInstituicao.text = instituicao;
-    } else {
-      _instituicao = 'Fatec';
-      _outraInstituicao.clear();
-    }
+    _turnoPersonalizado.text = usuario.turnoPersonalizado ?? '';
   }
 
   void _cancelar() {
@@ -90,9 +86,11 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     FocusScope.of(context).unfocus();
     if (_salvando || !(_formKey.currentState?.validate() ?? false)) return;
 
-    final instituicao = _instituicao == 'Outra'
-        ? _outraInstituicao.text.trim()
-        : _instituicao;
+    final instituicao = _instituicao.text.trim();
+    final cep = _cep.text.trim();
+    final turnoPersonalizado = _turno == Turno.outro
+        ? _turnoPersonalizado.text.trim()
+        : null;
     final atual = _usuarioOriginal;
 
     // Campos opcionais não alterados não são enviados: o Firestore faz merge
@@ -101,14 +99,21 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     final resultado = await StoreScope.read(context).atualizarPerfil(
       nome: _nome.text,
       telefone: _telefone.text,
-      instituicao: instituicao == atual.instituicao ? null : instituicao,
+      instituicao: instituicao == (atual.instituicao ?? '')
+          ? null
+          : instituicao,
       endereco: _endereco.text == (atual.enderecoEmbarque ?? '')
           ? null
           : _endereco.text,
+      cep: cep == (atual.cep ?? '') ? null : cep,
       referencia: _referencia.text == (atual.referenciaEndereco ?? '')
           ? null
           : _referencia.text,
       turno: _turno == (atual.turno ?? Turno.matutino) ? null : _turno,
+      turnoPersonalizado:
+          turnoPersonalizado == (atual.turnoPersonalizado ?? '')
+              ? null
+              : turnoPersonalizado,
     );
     if (!mounted) return;
     setState(() => _salvando = false);
@@ -123,6 +128,23 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
         _aplicarUsuario(salvo);
       });
     }
+  }
+
+  Future<void> _alterarFoto() async {
+    final store = StoreScope.read(context);
+    final alterou = await mostrarEditorFotoPerfil(
+      context,
+      possuiFoto: _usuario.fotoUrl != null,
+      salvar: store.atualizarFotoPerfil,
+      remover: store.removerFotoPerfil,
+    );
+    if (!alterou || !mounted) return;
+    final atualizado = StoreScope.read(context).usuarioAtual;
+    if (atualizado == null) return;
+    setState(() {
+      _usuario = atualizado;
+      _usuarioOriginal = atualizado;
+    });
   }
 
   Future<void> _salvarSenha() async {
@@ -171,11 +193,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                       icon: Icons.photo_camera_outlined,
                       variant: VangoButtonVariant.ghost,
                       height: 44,
-                      onPressed: () => mostrarToast(
-                        context,
-                        'Seleção de foto será integrada ao Firebase Storage '
-                        'na Etapa 3.',
-                      ),
+                      onPressed: _alterarFoto,
                     ),
                   ],
                 ),
@@ -203,19 +221,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: AppSpacing.md),
-              _CampoInstituicao(
-                valor: _instituicao,
-                onChanged: (valor) => setState(() => _instituicao = valor),
-              ),
-              if (_instituicao == 'Outra') ...[
-                const SizedBox(height: AppSpacing.md),
-                VangoTextField(
-                  controller: _outraInstituicao,
-                  label: 'Outra instituição',
-                  validator: (valor) =>
-                      validarObrigatorio(valor, 'a instituição'),
-                ),
-              ],
+              _CampoInstituicao(controller: _instituicao),
               const SizedBox(height: AppSpacing.md),
               DropdownButtonFormField<Turno>(
                 initialValue: _turno,
@@ -239,12 +245,41 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                         if (novo != null) setState(() => _turno = novo);
                       },
               ),
+              if (_turno == Turno.outro) ...[
+                const SizedBox(height: AppSpacing.md),
+                VangoTextField(
+                  controller: _turnoPersonalizado,
+                  label: 'Turno personalizado',
+                  hint: 'Ex.: Integrado',
+                  validator: (valor) =>
+                      validarObrigatorio(valor, 'o turno personalizado'),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               VangoTextField(
                 controller: _endereco,
                 label: 'Endereço de embarque',
                 maxLines: 2,
                 validator: validarEndereco,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              VangoTextField(
+                controller: _cep,
+                label: 'CEP',
+                hint: '00000-000',
+                keyboardType: TextInputType.number,
+                // Documentos antigos não têm CEP; quando preenchido, exige 8 dígitos.
+                validator: (valor) => valor == null || valor.trim().isEmpty
+                    ? null
+                    : validarCep(valor),
+                onChanged: (valor) {
+                  final formatado = aplicarMascaraCep(valor);
+                  if (formatado == valor) return;
+                  _cep.value = TextEditingValue(
+                    text: formatado,
+                    selection: TextSelection.collapsed(offset: formatado.length),
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.md),
               VangoTextField(
@@ -345,40 +380,49 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   }
 }
 
+/// Instituição é texto livre; os nomes conhecidos viram apenas atalhos.
 class _CampoInstituicao extends StatelessWidget {
-  const _CampoInstituicao({required this.valor, required this.onChanged});
+  const _CampoInstituicao({required this.controller});
 
-  final String valor;
-  final ValueChanged<String> onChanged;
+  final TextEditingController controller;
 
   @override
   Widget build(BuildContext context) {
+    final sugestoes = DemoData.instituicoes
+        .where((nome) => nome.trim().isNotEmpty && nome != 'Outra')
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Instituição',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.text,
-          ),
+        VangoTextField(
+          controller: controller,
+          label: 'Instituição',
+          hint: 'Digite o nome da instituição',
+          // Contas antigas podem não ter instituição: o campo é opcional aqui.
+          validator: (valor) => valor == null || valor.trim().isEmpty
+              ? null
+              : validarObrigatorio(valor, 'a instituição'),
         ),
         const SizedBox(height: AppSpacing.xs),
-        DropdownButtonFormField<String>(
-          initialValue: valor,
-          isExpanded: true,
-          items: DemoData.instituicoes
-              .map(
-                (instituicao) => DropdownMenuItem<String>(
-                  value: instituicao,
-                  child: Text(instituicao),
-                ),
-              )
-              .toList(),
-          onChanged: (novo) {
-            if (novo != null) onChanged(novo);
-          },
+        const Text(
+          'Sugestões (opcional)',
+          style: TextStyle(fontSize: 11, color: AppColors.muted),
+        ),
+        const SizedBox(height: AppSpacing.xxs),
+        Wrap(
+          spacing: AppSpacing.xs,
+          children: [
+            for (final nome in sugestoes)
+              ActionChip(
+                label: Text(nome, style: const TextStyle(fontSize: 11)),
+                onPressed: () {
+                  controller.text = nome;
+                  controller.selection = TextSelection.collapsed(
+                    offset: nome.length,
+                  );
+                },
+              ),
+          ],
         ),
       ],
     );

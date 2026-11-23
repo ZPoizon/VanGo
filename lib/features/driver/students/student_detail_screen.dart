@@ -10,7 +10,6 @@ import 'package:vango/core/widgets/vango_app_bar.dart';
 import 'package:vango/core/widgets/vango_button.dart';
 import 'package:vango/core/widgets/vango_card.dart';
 import 'package:vango/core/widgets/vango_text_field.dart';
-import 'package:vango/demo/demo_data.dart';
 import 'package:vango/models/usuario.dart';
 
 class StudentDetailScreen extends StatefulWidget {
@@ -28,7 +27,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   late final TextEditingController _email;
   late final TextEditingController _telefone;
   late final TextEditingController _endereco;
-  late String _instituicao;
+  late final TextEditingController _instituicao;
 
   @override
   void initState() {
@@ -38,7 +37,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     _email = TextEditingController(text: _aluno?.email ?? '');
     _telefone = TextEditingController(text: _aluno?.telefone ?? '');
     _endereco = TextEditingController(text: _aluno?.enderecoEmbarque ?? '');
-    _instituicao = _aluno?.instituicao ?? DemoData.instituicaoPadrao;
+    // Nenhum valor padrão: contas antigas podem não ter instituição e um nome
+    // personalizado não pode ser trocado por "Fatec" ao salvar.
+    _instituicao = TextEditingController(text: _aluno?.instituicao ?? '');
   }
 
   @override
@@ -47,6 +48,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     _email.dispose();
     _telefone.dispose();
     _endereco.dispose();
+    _instituicao.dispose();
     super.dispose();
   }
 
@@ -57,7 +59,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
       aluno.copyWith(
         nome: _nome.text.trim(),
         telefone: _telefone.text.trim(),
-        instituicao: _instituicao,
+        instituicao: _instituicao.text.trim(),
         enderecoEmbarque: _endereco.text.trim(),
       ),
     );
@@ -119,7 +121,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
               color: AppColors.primarySoft,
               borderColor: AppColors.primarySoft,
               child: Text(
-                'Cadastro ${aluno.status.label.toLowerCase()} · ${aluno.turno?.label ?? 'Sem turno'}',
+                'Cadastro ${aluno.status.label.toLowerCase()} · ${aluno.periodo ?? 'Sem turno'}',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -148,30 +150,11 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
               textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: AppSpacing.md),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Instituição',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                DropdownButtonFormField<String>(
-                  initialValue: DemoData.instituicoes.contains(_instituicao)
-                      ? _instituicao
-                      : DemoData.instituicaoPadrao,
-                  items: DemoData.instituicoes
-                      .map((i) => DropdownMenuItem(value: i, child: Text(i)))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setState(() => _instituicao = v);
-                  },
-                ),
-              ],
+            VangoTextField(
+              controller: _instituicao,
+              label: 'Instituição',
+              hint: 'Nome da instituição',
+              textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: AppSpacing.md),
             VangoTextField(

@@ -95,6 +95,7 @@ class _InviteScreenState extends State<InviteScreen> {
             SegmentedButton<Turno>(
               segments: const [
                 ButtonSegment(value: Turno.matutino, label: Text('Matutino')),
+                ButtonSegment(value: Turno.vespertino, label: Text('Vespertino')),
                 ButtonSegment(value: Turno.noturno, label: Text('Noturno')),
               ],
               selected: {_turno},

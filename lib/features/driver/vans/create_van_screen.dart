@@ -13,7 +13,12 @@ import 'package:vango/core/resultado.dart';
 import 'package:vango/models/grupo.dart';
 
 class CreateVanScreen extends StatefulWidget {
-  const CreateVanScreen({super.key});
+  const CreateVanScreen({super.key, this.rotaRetorno});
+
+  /// Quando informado (fluxo iniciado pelo dashboard), a criação volta
+  /// explicitamente para esta rota em vez de depender do pop da pilha.
+  /// O fluxo de "Minhas vans" continua usando o pop com `true`.
+  final String? rotaRetorno;
 
   @override
   State<CreateVanScreen> createState() => _CreateVanScreenState();
@@ -62,7 +67,12 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
         // Não chamar unfocus manualmente: o desfoco imediato antes do pop
         // deixava o focus manager visitar render objects inativos
         // (Null check em RenderObject.getTransformTo / FocusScope inativo).
-        context.pop(true);
+        final retorno = widget.rotaRetorno;
+        if (retorno != null && retorno.isNotEmpty) {
+          context.go(retorno);
+        } else {
+          context.pop(true);
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -123,14 +133,12 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
                     VangoTextField(
                       controller: _origem,
                       label: 'Cidade de origem',
-                      hint: 'Ex.: Capão Bonito',
                       textInputAction: TextInputAction.next,
                     ),
                     const SizedBox(height: AppSpacing.md),
                     VangoTextField(
                       controller: _destino,
                       label: 'Cidade de destino',
-                      hint: 'Ex.: Itapetininga',
                       textInputAction: TextInputAction.next,
                     ),
                   ],
@@ -149,18 +157,36 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      children: [
-                        for (final periodo in PeriodoVan.values)
-                          ChoiceChip(
-                            label: Text(periodo.label),
-                            selected: _periodo == periodo,
-                            onSelected: (selecionado) => setState(() {
-                              _periodo = selecionado ? periodo : null;
-                            }),
-                          ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final colunas = constraints.maxWidth < 600 ? 2 : 4;
+                        return GridView.count(
+                          crossAxisCount: colunas,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          mainAxisSpacing: AppSpacing.sm,
+                          crossAxisSpacing: AppSpacing.sm,
+                          childAspectRatio: colunas == 2 ? 4.2 : 3.4,
+                          children: [
+                            for (final periodo in PeriodoVan.values)
+                              _PeriodoOpcao(
+                                key: Key('periodo-${periodo.name}'),
+                                periodo: periodo,
+                                selecionado: _periodo == periodo,
+                                onSelecionado: (selecionado) => setState(() {
+                                  _periodo = selecionado ? periodo : null;
+                                }),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    VangoTextField(
+                      controller: _horario,
+                      label: 'Horário habitual de saída (opcional)',
+                      hint: 'Ex.: 07:15',
+                      keyboardType: TextInputType.datetime,
                     ),
                     if (_periodo == PeriodoVan.personalizado) ...[
                       const SizedBox(height: AppSpacing.md),
@@ -173,13 +199,6 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
                             : 'Descreva o período personalizado.',
                       ),
                     ],
-                    const SizedBox(height: AppSpacing.md),
-                    VangoTextField(
-                      controller: _horario,
-                      label: 'Horário habitual de saída (opcional)',
-                      hint: 'Ex.: 07:15',
-                      keyboardType: TextInputType.datetime,
-                    ),
                     const SizedBox(height: AppSpacing.md),
                     VangoTextField(
                       controller: _observacoes,
@@ -204,6 +223,49 @@ class _CreateVanScreenState extends State<CreateVanScreen> {
                 onPressed: _salvando ? null : () => context.pop(false),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Opção de período com altura/largura iguais às demais, controladas pela grade.
+class _PeriodoOpcao extends StatelessWidget {
+  const _PeriodoOpcao({
+    super.key,
+    required this.periodo,
+    required this.selecionado,
+    required this.onSelecionado,
+  });
+
+  final PeriodoVan periodo;
+  final bool selecionado;
+  final ValueChanged<bool> onSelecionado;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selecionado,
+      child: InkWell(
+        onTap: () => onSelecionado(!selecionado),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selecionado ? AppColors.primary : AppColors.surface,
+            border: Border.all(
+              color: selecionado ? AppColors.primary : AppColors.divider,
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            periodo.label,
+            style: TextStyle(
+              color: selecionado ? Colors.white : AppColors.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ),
