@@ -376,7 +376,7 @@ service cloud.firestore {
       // Criação por motorista autenticado. Cada van tem ID próprio; o dono
       // não precisa ter grupoId no perfil para criar a primeira van.
       allow create: if autenticado()
-        && perfilEh('motorista')
+        && ehMotorista()
         && grupoId.matches('^grupo_' + request.auth.uid + '_[0-9]{6}$')
         && request.resource.data.get('motoristaId', '') == request.auth.uid
         && request.resource.data.keys().hasOnly([
@@ -390,7 +390,7 @@ service cloud.firestore {
       // A posse é verificada no próprio documento, sem depender do grupoId
       // fixo no perfil.
       allow update: if autenticado()
-        && perfilEh('motorista')
+        && ehMotorista()
         && resource.data.get('motoristaId', '') == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'nome', 'codigo', 'cidadeOrigem', 'cidadeDestino', 'periodo',
@@ -936,7 +936,7 @@ service cloud.firestore {
       // `reservadoPor` vincula a reserva ao auth.uid: sem isso, outro motorista
       // poderia concluir uma reserva alheia só por conhecer o código/ID.
       allow create: if autenticado()
-        && perfilEh('motorista')
+        && ehMotorista()
         && codigo.matches('^[0-9]{6}$')
         && request.resource.data.keys().hasOnly(['reservadoEm', 'expiraEm', 'reservadoPor'])
         && request.resource.data.get('reservadoPor', '') == request.auth.uid

@@ -241,7 +241,7 @@ Nenhuma migração ou exclusão de dados foi feita. O bloqueio de alteração ap
 início da viagem é feito no servidor pela regra que exige `chamada.status ==
 'aberta'`; o motorista encerra a chamada antes de iniciar a viagem.
 
-As regras foram validadas no emulador: **82 permitidos e 147 proibidos, sem
+As regras foram validadas no emulador: **82 permitidos e 149 proibidos, sem
 falhas** (última execução, incluindo as Fases 5A e 5B). A leitura somente leitura
 do projeto `vango-4b4a5` identificou como ruleset ativo
 `84033eba-209f-46aa-9183-ebe54e0aa139`
@@ -282,7 +282,7 @@ bloqueio de escrita no caminho de outro UID e rejeição de extensão/tamanho
 inválidos nas Storage Rules. Última execução no Emulator Suite (Auth +
 Firestore + Storage, build web debug): **14/14 etapas aprovadas**, zero erros
 de console/HTTP. A suíte de regras do Firestore terminou com **82 permitidos e
-147 proibidos aprovados**, incluindo a rejeição de base64 em `fotoUrl` e os
+149 proibidos aprovados**, incluindo a rejeição de base64 em `fotoUrl` e os
 casos da Fase 5B.
 
 `tool/e2e_fase5b.js` cobre os avisos persistentes de solicitação de entrada com

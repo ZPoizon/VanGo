@@ -46,6 +46,7 @@ const EMAIL_NOVO_MOTORISTA = 'novo.motorista@teste.com';
 const EMAIL_NOVO_ALUNO = 'novo.aluno@teste.com';
 const EMAIL_OUTRO = 'outro@teste.com';
 const MOTORISTA_B = 'motorista-b-uid';
+const MOTORISTA_INATIVO = 'motorista-inativo-uid';
 const ALUNO_B = 'aluno-b-uid';
 const ALUNO_RECUSADO = 'aluno-recusado-uid';
 const GRUPO_B = `grupo_${MOTORISTA_B}_222333`;
@@ -88,6 +89,7 @@ async function semear() {
     await setDoc(doc(db, 'usuarios', NOVO_MOTORISTA), usuario('MOTORISTA', true, 'ativo', null));
     await setDoc(doc(db, 'usuarios', MOTORISTA_SEM_LEGADO), usuario('MOTORISTA', true, 'ativo', null));
     await setDoc(doc(db, 'usuarios', MOTORISTA_B), usuario('MOTORISTA', true, 'ativo', null));
+    await setDoc(doc(db, 'usuarios', MOTORISTA_INATIVO), usuario('MOTORISTA', false, 'desativado', null));
     await setDoc(doc(db, 'usuarios', ALUNO_B), usuario('ALUNO', true, 'ativo', GRUPO_B));
     await setDoc(doc(db, 'usuarios', ALUNO_RECUSADO), {
       perfil: 'aluno', ativo: false, status: 'recusado', grupoId: GRUPO,
@@ -198,6 +200,7 @@ const ctxMotorista = () => testEnv.authenticatedContext(MOTORISTA).firestore();
 const ctxAlunoSemGrupo = () => testEnv.authenticatedContext(ALUNO_SEM_GRUPO).firestore();
 const ctxAlunoPendente = () => testEnv.authenticatedContext(ALUNO_PENDENTE).firestore();
 const ctxMotoristaB = () => testEnv.authenticatedContext(MOTORISTA_B).firestore();
+const ctxMotoristaInativo = () => testEnv.authenticatedContext(MOTORISTA_INATIVO).firestore();
 const ctxAlunoB = () => testEnv.authenticatedContext(ALUNO_B).firestore();
 const ctxAlunoRecusado = () => testEnv.authenticatedContext(ALUNO_RECUSADO).firestore();
 
@@ -1222,6 +1225,18 @@ const grupoNovo = {
 
 await permitido('motorista sem grupo legado cria primeira van com campos completos', () =>
   setDoc(doc(ctxSemLegado(), 'grupos', novoGrupoId), grupoNovo));
+
+await proibido('motorista desativado não cria van', () =>
+  setDoc(doc(ctxMotoristaInativo(), 'grupos', `grupo_${MOTORISTA_INATIVO}_666777`), {
+    nome: 'Van Inativa', motoristaId: MOTORISTA_INATIVO, codigo: '666777',
+  }));
+
+await proibido('motorista desativado não reserva código', () =>
+  setDoc(doc(ctxMotoristaInativo(), 'codigos', '666777'), {
+    reservadoEm: Timestamp.now(),
+    expiraEm: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+    reservadoPor: MOTORISTA_INATIVO,
+  }));
 
 await permitido('motorista sem grupo legado lista somente as próprias vans', () =>
   getDocs(query(
