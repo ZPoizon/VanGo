@@ -94,13 +94,14 @@ Chaves aceitas: `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`,
 ### Validação local com Firebase Emulator Suite (`demo-vango`)
 
 Para validação automatizada, use **somente** os emuladores. O bootstrap do app
-impõe `demo-vango`, sonda Auth/Firestore e chama `useAuthEmulator` /
-`useFirestoreEmulator`; não existe fallback para produção nesse modo.
+impõe `demo-vango`, sonda Auth/Firestore/Storage e chama `useAuthEmulator` /
+`useFirestoreEmulator` / `useStorageEmulator`; não existe fallback para produção
+nesse modo.
 
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
-firebase emulators:start --only auth,firestore,ui --project demo-vango
+firebase emulators:start --only auth,firestore,storage,ui --project demo-vango
 ```
 
 Em outro terminal, gere o build **debug** e sirva o web:
@@ -111,6 +112,7 @@ flutter build web --debug `
   --dart-define=FIREBASE_EMULATOR_HOST=127.0.0.1 `
   --dart-define=FIREBASE_AUTH_EMULATOR_PORT=9099 `
   --dart-define=FIREBASE_FIRESTORE_EMULATOR_PORT=8080 `
+  --dart-define=FIREBASE_STORAGE_EMULATOR_PORT=9199 `
   --dart-define=FIREBASE_EMULATOR_PROJECT_ID=demo-vango `
   --output=build/web_e2e
 
@@ -122,7 +124,8 @@ node tool/e2e_static_server.mjs build/web_e2e 7358
 > reload pode contatar Auth de produção antes de `useAuthEmulator`.
 
 Endereços locais: app `http://127.0.0.1:7358/`, UI dos emuladores
-`http://127.0.0.1:4000/`, Auth `127.0.0.1:9099`, Firestore `127.0.0.1:8080`.
+`http://127.0.0.1:4000/`, Auth `127.0.0.1:9099`, Firestore `127.0.0.1:8080`,
+Storage `127.0.0.1:9199`.
 
 Para rodar somente as regras:
 
@@ -139,6 +142,9 @@ npm --prefix tool/rules_test test
   funcionando sem as credenciais.
 - Permissões de notificação e o canal padrão `vango_chegada` já estão no
   `AndroidManifest.xml`.
+- Fase 5A: `flutter build apk --debug` validado com `image_picker`,
+  `firebase_storage` e permissões de câmera/galeria. A captura com câmera em
+  dispositivo físico ainda não foi executada neste ambiente.
 
 #### iOS / macOS
 
@@ -159,9 +165,22 @@ firebase deploy --only firestore:rules,firestore:indexes,storage,functions
 - `firestore.rules`: leitura autenticada por grupo; escrita restrita ao
   motorista do grupo ou ao próprio aluno.
 - `firestore.indexes.json`: índices compostos usados pelo app.
-- `storage.rules`: foto de perfil até 5 MB, somente `image/*`.
+- `storage.rules`: foto de perfil em `usuarios/{uid}/foto.*`, no máximo 5 MB,
+  tipos `image/jpeg|png|webp`, somente o dono do UID pode escrever/excluir e
+  a leitura exige login.
 - `functions/index.js`: observa `notificacoes/{id}` e envia push aos tokens dos
   alunos avisados, removendo tokens inválidos.
+
+> **Fase 5A — bloqueio de produção:** o upload real depende de um bucket do
+> Cloud Storage habilitado no projeto. `firebase projects:list` confirma que
+> `vango-4b4a5` está ativo, mas a disponibilidade do bucket padrão
+> (`vango-4b4a5.firebasestorage.app`) e o faturamento não puderam ser
+> confirmados com as ferramentas disponíveis neste ambiente (sem `gcloud`/
+> `gsutil`). Nenhum serviço ou plano foi ativado. Antes de publicar, verifique
+> no Console do Firebase se o Storage está habilitado, se o projeto possui o
+> plano de faturamento exigido e publique `storage.rules` e `firestore.rules`.
+> Até lá, foto de perfil funciona somente com emuladores (ou em modo demo, sem
+> persistência).
 
 #### Criar o motorista (primeiro acesso)
 
@@ -222,9 +241,10 @@ Nenhuma migração ou exclusão de dados foi feita. O bloqueio de alteração ap
 início da viagem é feito no servidor pela regra que exige `chamada.status ==
 'aberta'`; o motorista encerra a chamada antes de iniciar a viagem.
 
-As regras foram validadas no emulador: **64 permitidos e 121 proibidos, sem
-falhas**. A leitura somente leitura do projeto `vango-4b4a5` identificou como
-ruleset ativo `84033eba-209f-46aa-9183-ebe54e0aa139`
+As regras foram validadas no emulador: **82 permitidos e 147 proibidos, sem
+falhas** (última execução, incluindo as Fases 5A e 5B). A leitura somente leitura
+do projeto `vango-4b4a5` identificou como ruleset ativo
+`84033eba-209f-46aa-9183-ebe54e0aa139`
 (SHA `48a7e2ab5c990d8b37dfa71bfbc0db89534c3e5898da6c2c8d0ca7724f225594`).
 A referência antiga `02a1712e-e1e3-496f-910a-10f56a264a22` **não é o ruleset
 ativo**.
@@ -256,9 +276,26 @@ aluno e confere os documentos diretamente no Firestore Emulator. Cobertura:
 O isolamento entre grupos é verificado pelos casos proibidos da suíte de regras
 (leitura/escrita entre grupos) e pelo uso de contextos de navegador separados.
 
+`tool/e2e_foto.js` cobre a Fase 5A: seleção, prévia, salvamento, substituição,
+remoção com limpeza do arquivo antigo, persistência após refresh e novo login,
+bloqueio de escrita no caminho de outro UID e rejeição de extensão/tamanho
+inválidos nas Storage Rules. Última execução no Emulator Suite (Auth +
+Firestore + Storage, build web debug): **14/14 etapas aprovadas**, zero erros
+de console/HTTP. A suíte de regras do Firestore terminou com **82 permitidos e
+147 proibidos aprovados**, incluindo a rejeição de base64 em `fotoUrl` e os
+casos da Fase 5B.
+
+`tool/e2e_fase5b.js` cobre os avisos persistentes de solicitação de entrada com
+sessões isoladas de motorista e dois alunos: criação atômica do aviso, atualização
+em tempo real, persistência após refresh e novo login, identificação da van,
+navegação para aprovação/recusa, idempotência, ausência de duplicidade,
+isolamento e regressão de `resposta_alterada`. Última execução: **12/12 etapas
+aprovadas**, zero erros.
+
 Ainda pendente de validação em ambiente real: deploy das regras locais,
-índices, Storage, Functions/Hosting e FCM. Nenhum desses itens foi publicado ou
-validado em produção nesta consolidação.
+índices (incluindo `notificacoes(grupoId, tipo)`), Storage, Functions/Hosting e
+FCM. Nenhum desses itens foi publicado ou validado em produção nesta
+consolidação.
 
 ---
 
@@ -266,10 +303,12 @@ validado em produção nesta consolidação.
 
 - **Login / Recuperar senha** (`lib/features/auth`)
 - **Cadastro por convite** com aprovação do motorista
+- **Dashboard do motorista** (`/driver/dashboard`): resumo das próprias vans,
+  alunos e solicitações, acesso rápido e seleção da van operacional
 - **Home do aluno**: status da chamada, respostas de ida/volta, padrão semanal,
   aviso "estou indo" e "estou liberado"
-- **Home do motorista**: abrir/encerrar chamada, iniciar/encerrar viagem,
-  contadores em tempo real
+- **Home do motorista** (`/driver/home`): painel operacional da van selecionada;
+  abrir/encerrar chamada, iniciar/encerrar viagem, contadores em tempo real
 - **Lista do dia**, **Alunos** (ativos/pendentes), **Convite**, **Histórico**,
   **Avisos de chegada**, **Perfis** e **Padrão semanal**
 
