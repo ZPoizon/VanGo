@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
 import '../firebase_options.dart';
@@ -46,6 +47,10 @@ abstract final class FirebaseBootstrap {
     'FIREBASE_FIRESTORE_EMULATOR_PORT',
     defaultValue: 8080,
   );
+  static const int _storageEmuladorPort = int.fromEnvironment(
+    'FIREBASE_STORAGE_EMULATOR_PORT',
+    defaultValue: 9199,
+  );
 
   static const String _emuladorProjectId = String.fromEnvironment(
     'FIREBASE_EMULATOR_PROJECT_ID',
@@ -77,6 +82,17 @@ abstract final class FirebaseBootstrap {
       'Firestore',
       _emuladorProjectId,
     );
+    // O emulador de Storage responde 501 na raiz (não é um erro de conexão),
+    // o que geraria ruído de console no Web. No Web confiamos no
+    // useStorageEmulator: o upload falha explicitamente se ele estiver ausente.
+    if (!kIsWeb) {
+      await emulator_probe.probeEmulatorHost(
+        _emuladorHost,
+        _storageEmuladorPort,
+        'Storage',
+        _emuladorProjectId,
+      );
+    }
   }
 
   static Future<bool> initialize() async {
@@ -107,8 +123,8 @@ abstract final class FirebaseBootstrap {
       }
       if (_usarEmuladores) {
         await _garantirEmuladoresDisponiveis();
-        // Conecta Auth/Firestore a emuladores locais. Usado apenas para
-        // validação E2E; nunca habilitado em produção.
+        // Conecta Auth/Firestore/Storage a emuladores locais. Usado apenas
+        // para validação E2E; nunca habilitado em produção.
         await FirebaseAuth.instance.useAuthEmulator(
           _emuladorHost,
           _authEmuladorPort,
@@ -116,6 +132,10 @@ abstract final class FirebaseBootstrap {
         FirebaseFirestore.instance.useFirestoreEmulator(
           _emuladorHost,
           _firestoreEmuladorPort,
+        );
+        await FirebaseStorage.instance.useStorageEmulator(
+          _emuladorHost,
+          _storageEmuladorPort,
         );
         final projetoAtivo = Firebase.app().options.projectId;
         if (projetoAtivo != _emuladorProjectId) {
@@ -130,6 +150,7 @@ abstract final class FirebaseBootstrap {
         debugPrint(
           '[Firebase] emuladores: auth=$_emuladorHost:$_authEmuladorPort '
           'firestore=$_emuladorHost:$_firestoreEmuladorPort '
+          'storage=$_emuladorHost:$_storageEmuladorPort '
           'projectId=$_emuladorProjectId',
         );
       }

@@ -9,7 +9,18 @@ String? _rotaAnterior(String caminho) {
   // de navegação, o Voltar deve levá-lo de volta ao próprio painel.
   if (caminho == '/signup/enter-group') return '/student/home';
   if (caminho == '/student/profile') return '/student/home';
-  if (caminho == '/driver/profile') return '/driver/home';
+  // O ponto de entrada do motorista é o dashboard geral; o /driver/home é o
+  // painel da van selecionada e não deve ser usado como Voltar genérico.
+  if (caminho == '/driver/profile' ||
+      caminho == '/driver/requests' ||
+      caminho == '/driver/daily-list' ||
+      caminho == '/driver/students' ||
+      caminho == '/driver/history') {
+    return '/driver/dashboard';
+  }
+  if (caminho == '/driver/vans' || caminho == '/driver/vans/new') {
+    return '/driver/dashboard';
+  }
   if (caminho.startsWith('/driver/vans/')) return '/driver/vans';
   if (caminho == '/signup/choice') return '/login';
   if (caminho.startsWith('/signup/')) return '/signup/choice';

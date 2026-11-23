@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_colors.dart';
@@ -19,11 +21,12 @@ class VangoAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imagem = _imagemDe(fotoUrl);
     final conteudo = CircleAvatar(
       radius: radius,
       backgroundColor: AppColors.primary,
-      backgroundImage: fotoUrl == null ? null : NetworkImage(fotoUrl!),
-      child: fotoUrl == null
+      backgroundImage: imagem,
+      child: imagem == null
           ? Text(
               iniciais(nome),
               style: TextStyle(
@@ -45,5 +48,21 @@ class VangoAvatar extends StatelessWidget {
         child: conteudo,
       ),
     );
+  }
+
+  /// No modo demo a foto vive apenas em memória, como data URI. No Firebase,
+  /// [fotoUrl] é a URL de download do Storage e segue por [NetworkImage].
+  static ImageProvider<Object>? _imagemDe(String? url) {
+    if (url == null || url.isEmpty) return null;
+    if (url.startsWith('data:image/')) {
+      final virgula = url.indexOf(',');
+      if (virgula < 0) return null;
+      try {
+        return MemoryImage(base64Decode(url.substring(virgula + 1)));
+      } catch (_) {
+        return null;
+      }
+    }
+    return NetworkImage(url);
   }
 }

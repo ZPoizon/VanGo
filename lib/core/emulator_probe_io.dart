@@ -15,7 +15,8 @@ Future<void> probeEmulatorHost(
   } catch (e) {
     throw StateError(
       'Emulador $name indisponível em http://$host:$port/. '
-      'Inicie Auth+Firestore no mesmo projectId ($projectId) antes do app. '
+      'Inicie Auth+Firestore+Storage no mesmo projectId ($projectId) '
+      'antes do app. '
       'Fallback para produção não permitido. Detalhe: $e',
     );
   }

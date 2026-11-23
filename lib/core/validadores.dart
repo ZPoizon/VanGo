@@ -35,3 +35,26 @@ String? validarSenha(String? valor) {
 
 String? validarEndereco(String? valor) =>
     validarObrigatorio(valor, 'o endereço de embarque');
+
+String? validarConfirmacaoSenha(String? valor, String senha) {
+  final obrigatorio = validarObrigatorio(valor, 'a confirmação da senha');
+  if (obrigatorio != null) return obrigatorio;
+  if (valor != senha) return 'As senhas não coincidem.';
+  return null;
+}
+
+/// Aplica a máscara `00000-000` enquanto o CEP é digitado.
+String aplicarMascaraCep(String valor) {
+  final digitos = valor.replaceAll(RegExp(r'\D'), '');
+  final limitados = digitos.length > 8 ? digitos.substring(0, 8) : digitos;
+  if (limitados.length <= 5) return limitados;
+  return '${limitados.substring(0, 5)}-${limitados.substring(5)}';
+}
+
+String? validarCep(String? valor) {
+  final obrigatorio = validarObrigatorio(valor, 'o CEP');
+  if (obrigatorio != null) return obrigatorio;
+  final digitos = valor!.replaceAll(RegExp(r'\D'), '');
+  if (digitos.length != 8) return 'Informe o CEP com 8 dígitos.';
+  return null;
+}

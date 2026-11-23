@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/chamada.dart';
 import '../models/grupo.dart';
+import '../models/notificacao_entrada.dart';
 import '../models/notificacao_resposta.dart';
 import '../models/padrao_semanal.dart';
 import '../models/presenca.dart';
@@ -78,6 +79,15 @@ abstract class VanGoStore extends ChangeNotifier {
   /// para o mais antigo. Usado pelo motorista; alunos não exibem esta lista.
   List<NotificacaoResposta> get notificacoesResposta;
 
+  /// Avisos persistentes de novas solicitações de entrada, do mais recente para
+  /// o mais antigo. Já exclui solicitações aprovadas/recusadas e cobre todas
+  /// as vans administradas pelo motorista, não apenas a van ativa.
+  List<NotificacaoEntrada> get notificacoesEntrada;
+
+  /// Contagem reativa de solicitações pendentes por van, usada para atualizar
+  /// o dashboard em tempo real sem consultas globais.
+  Map<String, int> get pendentesPorGrupo;
+
   Future<OperacaoResultado> abrirChamada();
   Future<OperacaoResultado> encerrarChamada();
   Future<OperacaoResultado> cancelarChamada({String? motivo});
@@ -136,6 +146,8 @@ abstract class VanGoStore extends ChangeNotifier {
     required Turno turno,
     required String endereco,
     required String senha,
+    String? cep,
+    String? turnoPersonalizado,
   });
 
   // ------------------------------------------------------------------ grupos
@@ -151,6 +163,14 @@ abstract class VanGoStore extends ChangeNotifier {
 
   /// Quantidade de alunos aprovados de uma van, sem trocar a van ativa.
   Future<int> contarAlunosGrupo(String grupoId);
+
+  /// Quantidade de solicitações pendentes de uma van, sem trocar a van ativa
+  /// nem sobrescrever a lista compartilhada [solicitacoesPendentes].
+  ///
+  /// Retorna `null` quando a consulta não pôde ser concluída com segurança:
+  /// o dashboard exibe "indisponível" em vez de inventar um número.
+  /// A consulta é sempre filtrada pelo `grupoId` de uma van do motorista.
+  Future<int?> contarSolicitacoesGrupo(String grupoId);
 
   /// Seleciona a van ativa; a escolha persiste entre sessões.
   Future<OperacaoResultado> selecionarGrupo(String grupoId);
@@ -214,6 +234,8 @@ abstract class VanGoStore extends ChangeNotifier {
     required String endereco,
     required String senha,
     required Turno turno,
+    String? cep,
+    String? turnoPersonalizado,
     String? conviteToken,
   });
 
@@ -226,8 +248,10 @@ abstract class VanGoStore extends ChangeNotifier {
     required String telefone,
     String? instituicao,
     String? endereco,
+    String? cep,
     String? referencia,
     Turno? turno,
+    String? turnoPersonalizado,
     String? fotoUrl,
   });
 
@@ -240,6 +264,9 @@ abstract class VanGoStore extends ChangeNotifier {
     required Uint8List bytes,
     required String extensao,
   });
+
+  /// Remove a foto de perfil e o arquivo correspondente no Storage.
+  Future<OperacaoResultado> removerFotoPerfil();
 
   // ------------------------------------------------------------------ extras
 

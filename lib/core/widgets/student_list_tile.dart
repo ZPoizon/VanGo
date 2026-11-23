@@ -56,7 +56,11 @@ class StudentListTile extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.xxs),
               ] else ...[
-                VangoAvatar(nome: aluno.nome, radius: 20),
+                VangoAvatar(
+                  nome: aluno.nome,
+                  radius: 20,
+                  fotoUrl: aluno.fotoUrl,
+                ),
                 const SizedBox(width: AppSpacing.sm),
               ],
               Expanded(
