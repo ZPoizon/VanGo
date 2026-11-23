@@ -12,9 +12,29 @@ async (page) => {
 
   const passo = (n, descricao, ok, detalhe) =>
     results.push({ n, descricao, ok: Boolean(ok), detalhe });
-  const waitText = (p, texto, timeout = 25000) =>
-    p.getByText(texto, { exact: false }).first().waitFor({ state: 'visible', timeout });
+  // O Flutter web duplica nós de semântica (inclusive alguns fora da tela).
+  // Usar somente .first().waitFor('visible') pode selecionar um nó oculto e
+  // expirar mesmo com o texto correto na árvore de acessibilidade.
+  async function waitText(p, texto, timeout = 25000) {
+    const limite = Date.now() + timeout;
+    while (Date.now() < limite) {
+      const visiveis = p.getByText(texto, { exact: false });
+      if ((await visiveis.count()) > 0) {
+        try {
+          await visiveis.first().waitFor({ state: 'visible', timeout: 800 });
+          return;
+        } catch (_) {
+          // tenta os demais nós e, em seguida, a árvore de semântica
+        }
+      }
+      const semantica = (await p.locator('flt-semantics').allTextContents()).join('\n');
+      if (semantica.includes(texto)) return;
+      await p.waitForTimeout(250);
+    }
+    throw new Error(`Texto não apareceu: ${texto}`);
+  }
   const btn = (p, nome) => p.getByRole('button', { name: nome, exact: false }).first();
+  const btnUltimo = (p, nome) => p.getByRole('button', { name: nome, exact: false }).last();
   const campo = (p, nome) => p.getByRole('textbox', { name: nome, exact: false }).first();
   const input = (p, indice) => p.locator('input').nth(indice);
   async function preencher(p, indice, valor) {
@@ -81,6 +101,29 @@ async (page) => {
     }
     return ultimo;
   }
+  async function viagensDaChamada(p, id) {
+    const lista = await doc(p, 'viagens');
+    return (lista?.documents ?? []).filter(
+      (d) => d.fields?.chamadaId?.stringValue === id,
+    );
+  }
+  async function esperarViagem(p, chamadaId, condicao, timeout = 20000) {
+    const limite = Date.now() + timeout;
+    let ultimos = [];
+    while (Date.now() < limite) {
+      ultimos = await viagensDaChamada(p, chamadaId);
+      if (ultimos.some(condicao)) return ultimos;
+      await p.waitForTimeout(300);
+    }
+    return ultimos;
+  }
+  async function entrar(p, conta, textoEsperado) {
+    await input(p, 0).waitFor({ state: 'visible', timeout: 30000 });
+    await preencher(p, 0, conta.email);
+    await preencher(p, 1, conta.senha);
+    await btn(p, 'Entrar').click();
+    await waitText(p, textoEsperado, 30000);
+  }
   async function estados() {
     const out = [];
     for (const ctx of contexts) {
@@ -110,6 +153,7 @@ async (page) => {
     await preencher(dp, 1, DRIVER.email);
     await preencher(dp, 2, '(15) 99999-0001');
     await preencher(dp, 3, DRIVER.senha);
+    await preencher(dp, 4, DRIVER.senha); // confirmação de senha (Fase 1)
     await btn(dp, 'Criar conta de motorista').click();
     await btn(dp, 'Criar minha primeira van').waitFor({ state: 'visible', timeout: 30000 });
 
@@ -129,7 +173,7 @@ async (page) => {
     await preencher(dp, 0, 'Van E2E Integração');
     await preencher(dp, 1, 'Capão Bonito');
     await preencher(dp, 2, 'Itapetininga');
-    await dp.getByRole('checkbox', { name: 'Manhã' }).first().click();
+    await dp.getByText('Manhã', { exact: true }).first().click();
     await btn(dp, 'Criar van').click();
     await waitText(dp, 'Van E2E Integração', 30000);
 
@@ -154,8 +198,10 @@ async (page) => {
     await preencher(ap, 0, 'Aluno E2E');
     await preencher(ap, 1, ALUNO.email);
     await preencher(ap, 2, '(15) 99999-0002');
-    await preencher(ap, 3, 'Rua E2E, 100');
-    await preencher(ap, 4, ALUNO.senha);
+    await preencher(ap, 3, 'Fatec E2E');
+    await preencher(ap, 4, 'Rua E2E, 100');
+    await preencher(ap, 5, '18270-000'); // CEP obrigatório (Fase 1)
+    await preencher(ap, 6, ALUNO.senha);
     await btn(ap, 'Criar conta de aluno').click();
     await btn(ap, 'Entrar em um grupo').waitFor({ state: 'visible', timeout: 30000 });
     const alunoUid = await uidAuth(ap, ALUNO);
@@ -374,18 +420,410 @@ async (page) => {
       `usuario=${perfilFinal?.fields?.status?.stringValue}/${perfilFinal?.fields?.grupoId?.stringValue}; solicitacao=${solicitacaoFinal?.fields?.status?.stringValue}; grupo=${grupoFinal?.fields?.codigo?.stringValue}; chamada=${chamadaVerificada?.fields?.status?.stringValue}; resposta=${respostaVerificada?.fields?.ida?.stringValue}/${respostaVerificada?.fields?.volta?.stringValue}`,
     );
 
+    // ---------------- Fase 4: conclusão, cancelamento e histórico ----------------
+
+    // 15: chamada encerrada bloqueia qualquer alteração de resposta do aluno.
+    await ap.reload({ waitUntil: 'load' });
+    await a11y(ap);
+    const avisoBloqueio = await ap
+      .getByText('Respostas bloqueadas', { exact: false })
+      .count();
+    const respostaAntesBloqueio = await doc(ap, `respostas/${chamadaId}_${alunoUid}`);
+    try {
+      await ap.getByRole('button', { name: /confirmar ida/ }).first().click({ timeout: 1500 });
+    } catch (_) {}
+    const respostaDepoisBloqueio = await doc(ap, `respostas/${chamadaId}_${alunoUid}`);
+    passo(
+      15,
+      'Fase 4: chamada encerrada bloqueia alteração do aluno',
+      textoDoc(respostaAntesBloqueio) === textoDoc(respostaDepoisBloqueio) &&
+        respostaDepoisBloqueio?.fields?.ida?.stringValue === 'vai' &&
+        respostaDepoisBloqueio?.fields?.volta?.stringValue === 'vai',
+      `resposta=${textoDoc(respostaDepoisBloqueio)?.slice(0, 260)}; avisoUI=${avisoBloqueio}`,
+    );
+
+    // 16: início da ida.
+    const iniciarIda = btn(dp, 'Iniciar IDA');
+    await iniciarIda.waitFor({ state: 'visible', timeout: 30000 });
+    await iniciarIda.click();
+    await btnUltimo(dp, 'Iniciar IDA').click();
+    const viagensComIda = await esperarViagem(
+      dp,
+      chamadaId,
+      (d) =>
+        d?.fields?.sentido?.stringValue === 'ida' &&
+        ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemIda = viagensComIda.find(
+      (d) =>
+        d?.fields?.sentido?.stringValue === 'ida' &&
+        ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemIdaId = viagemIda?.name?.split('/').pop();
+    passo(
+      16,
+      'Fase 4: motorista inicia a viagem de ida',
+      Boolean(viagemIdaId) &&
+        viagemIda?.fields?.motoristaId?.stringValue === driverUid &&
+        viagemIda?.fields?.grupoId?.stringValue === grupoId,
+      `viagem=${viagemIdaId}; status=${viagemIda?.fields?.status?.stringValue}`,
+    );
+
+    // 17: conclusão positiva da ida (antes gravava status inválido e falhava).
+    await waitText(dp, 'Concluir viagem', 30000);
+    await btn(dp, 'Concluir viagem').click();
+    await btnUltimo(dp, 'Concluir viagem').click();
+    const idaConcluida = await esperarViagem(
+      dp,
+      chamadaId,
+      (d) =>
+        d?.name?.endsWith(`/${viagemIdaId}`) &&
+        d?.fields?.status?.stringValue === 'finalizada',
+    ).then((lista) => lista.find((d) => d?.name?.endsWith(`/${viagemIdaId}`)));
+    await waitText(dp, 'Iniciar VOLTA', 30000);
+    passo(
+      17,
+      'Fase 4: motorista conclui a ida com status finalizada',
+      idaConcluida?.fields?.status?.stringValue === 'finalizada' &&
+        Boolean(idaConcluida?.fields?.encerradaEm?.timestampValue),
+      `viagens/${viagemIdaId}=${textoDoc(idaConcluida)?.slice(0, 280)}`,
+    );
+
+    // 18: histórico da ida no app e no Firestore.
+    await dp.goto(`${BASE}#/driver/history`, { waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, ' · IDA', 30000);
+    const concluidasAposIda = await dp.getByText('Concluída', { exact: false }).count();
+    passo(
+      18,
+      'Fase 4: ida concluída aparece no histórico',
+      concluidasAposIda >= 1 &&
+        idaConcluida?.fields?.status?.stringValue === 'finalizada',
+      `chips Concluída=${concluidasAposIda}; viagem=${viagemIdaId}`,
+    );
+
+    // 19: aluno também vê a conclusão da ida.
+    await ap.reload({ waitUntil: 'load' });
+    await a11y(ap);
+    await waitText(ap, 'Viagem de ida concluída com sucesso', 30000);
+    passo(
+      19,
+      'Fase 4: aluno vê a ida concluída com sucesso',
+      (await ap.getByText('Viagem de ida concluída com sucesso', { exact: false }).count()) > 0,
+      'cartão de conclusão da ida visível na Home do aluno',
+    );
+
+    // 20: início da volta depois da ida concluída.
+    await dp.goto(`${BASE}#/driver/home`, { waitUntil: 'load' });
+    await a11y(dp);
+    const iniciarVolta = btn(dp, 'Iniciar VOLTA');
+    await iniciarVolta.waitFor({ state: 'visible', timeout: 30000 });
+    await iniciarVolta.click();
+    await btnUltimo(dp, 'Iniciar VOLTA').click();
+    const viagensComVolta = await esperarViagem(
+      dp,
+      chamadaId,
+      (d) =>
+        d?.fields?.sentido?.stringValue === 'volta' &&
+        ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemVolta = viagensComVolta.find(
+      (d) =>
+        d?.fields?.sentido?.stringValue === 'volta' &&
+        ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemVoltaId = viagemVolta?.name?.split('/').pop();
+    passo(
+      20,
+      'Fase 4: motorista inicia a volta após a ida',
+      Boolean(viagemVoltaId) &&
+        viagemVolta?.fields?.chamadaId?.stringValue === chamadaId,
+      `viagem=${viagemVoltaId}; status=${viagemVolta?.fields?.status?.stringValue}`,
+    );
+
+    // 21: conclusão da volta e liberação de nova chamada.
+    await btn(dp, 'Concluir viagem').waitFor({ state: 'visible', timeout: 30000 });
+    await btn(dp, 'Concluir viagem').click();
+    await btnUltimo(dp, 'Concluir viagem').click();
+    const voltaConcluida = await esperarViagem(
+      dp,
+      chamadaId,
+      (d) =>
+        d?.name?.endsWith(`/${viagemVoltaId}`) &&
+        d?.fields?.status?.stringValue === 'finalizada',
+    ).then((lista) => lista.find((d) => d?.name?.endsWith(`/${viagemVoltaId}`)));
+    await waitText(dp, 'Operação concluída com sucesso', 30000);
+    passo(
+      21,
+      'Fase 4: motorista conclui a volta com sucesso',
+      voltaConcluida?.fields?.status?.stringValue === 'finalizada' &&
+        Boolean(voltaConcluida?.fields?.encerradaEm?.timestampValue),
+      `viagens/${viagemVoltaId}=${textoDoc(voltaConcluida)?.slice(0, 280)}`,
+    );
+
+    // 22: histórico da volta e aviso correspondente no aluno.
+    await dp.goto(`${BASE}#/driver/history`, { waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, ' · VOLTA', 30000);
+    const concluidasAposVolta = await dp.getByText('Concluída', { exact: false }).count();
+    const viagensFinais = await viagensDaChamada(dp, chamadaId);
+    const finalizadas = viagensFinais.filter(
+      (d) => d?.fields?.status?.stringValue === 'finalizada',
+    );
+    await ap.reload({ waitUntil: 'load' });
+    await a11y(ap);
+    await waitText(ap, 'Viagem de volta concluída com sucesso', 30000);
+    passo(
+      22,
+      'Fase 4: ida e volta permanecem no histórico',
+      concluidasAposVolta >= 2 &&
+        finalizadas.length === 2 &&
+        finalizadas.some((d) => d.fields?.sentido?.stringValue === 'ida') &&
+        finalizadas.some((d) => d.fields?.sentido?.stringValue === 'volta'),
+      `chips Concluída=${concluidasAposVolta}; finalizadas=${finalizadas.length}`,
+    );
+
+    // 23: nova chamada liberada após a volta concluída.
+    await dp.goto(`${BASE}#/driver/home`, { waitUntil: 'load' });
+    await a11y(dp);
+    await btn(dp, 'Abrir chamada de amanhã').waitFor({ state: 'visible', timeout: 30000 });
+    await btn(dp, 'Abrir chamada de amanhã').click();
+    const chamadasAposVolta = await esperarDoc(
+      dp,
+      'chamadas',
+      (d) =>
+        (d?.documents ?? []).some(
+          (x) =>
+            x.fields?.grupoId?.stringValue === grupoId &&
+            x.fields?.status?.stringValue === 'aberta' &&
+            !x.name?.endsWith(`/${chamadaId}`),
+        ),
+    );
+    const chamadaCancelavel = (chamadasAposVolta?.documents ?? []).find(
+      (x) =>
+        x.fields?.grupoId?.stringValue === grupoId &&
+        x.fields?.status?.stringValue === 'aberta' &&
+        !x.name?.endsWith(`/${chamadaId}`),
+    );
+    const chamadaCancelavelId = chamadaCancelavel?.name?.split('/').pop();
+    passo(
+      23,
+      'Fase 4: nova chamada pode ser aberta após a volta',
+      Boolean(chamadaCancelavelId),
+      `chamadas/${chamadaCancelavelId}=${textoDoc(chamadaCancelavel)?.slice(0, 260)}`,
+    );
+
+    // 24: cancelamento da chamada com motivo opcional e aviso ao aluno.
+    await ap.reload({ waitUntil: 'load' });
+    await a11y(ap);
+    await btn(dp, 'Cancelar chamada').waitFor({ state: 'visible', timeout: 30000 });
+    await btn(dp, 'Cancelar chamada').click();
+    const motivoChamada = 'Imprevisto E2E';
+    await campo(dp, 'Motivo do cancelamento').last().fill(motivoChamada);
+    await btnUltimo(dp, 'Cancelar chamada').click();
+    const chamadaCancelada = await esperarDoc(
+      dp,
+      `chamadas/${chamadaCancelavelId}`,
+      (d) =>
+        d?.fields?.status?.stringValue === 'cancelada' &&
+        Boolean(d?.fields?.canceladaEm?.timestampValue),
+    );
+    await waitText(ap, 'A chamada de amanhã foi cancelada pelo motorista.', 30000);
+    passo(
+      24,
+      'Fase 4: motorista cancela a chamada com motivo',
+      chamadaCancelada?.fields?.status?.stringValue === 'cancelada' &&
+        chamadaCancelada?.fields?.motivoCancelamento?.stringValue === motivoChamada,
+      `chamadas/${chamadaCancelavelId}=${textoDoc(chamadaCancelada)?.slice(0, 300)}`,
+    );
+
+    // 25: cancelamento persiste após refresh nas duas sessões.
+    // O refresh do motorista entra pelo dashboard (regra da Fase 3), então
+    // voltamos ao painel operacional antes de validar o cartão da chamada.
+    await dp.reload({ waitUntil: 'load' });
+    await a11y(dp);
+    // Aguarda o dashboard carregar a van antes de voltar ao painel: um goto
+    // durante a restauração da sessão é redirecionado de volta ao dashboard.
+    await waitText(dp, 'RESUMO', 30000);
+    await dp.goto(`${BASE}#/driver/home`, { waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, 'Chamada cancelada', 30000);
+    await ap.reload({ waitUntil: 'load' });
+    await a11y(ap);
+    await waitText(ap, 'A chamada de amanhã foi cancelada pelo motorista.', 30000);
+    const canceladaAposRefresh = await doc(dp, `chamadas/${chamadaCancelavelId}`);
+    passo(
+      25,
+      'Fase 4: cancelamento da chamada persiste após refresh',
+      canceladaAposRefresh?.fields?.status?.stringValue === 'cancelada' &&
+        canceladaAposRefresh?.fields?.motivoCancelamento?.stringValue === motivoChamada,
+      `status=${canceladaAposRefresh?.fields?.status?.stringValue}; motivo=${canceladaAposRefresh?.fields?.motivoCancelamento?.stringValue}`,
+    );
+
+    // 26: terceira chamada para testar cancelamento de viagem em andamento.
+    await btn(dp, 'Abrir chamada de amanhã').click();
+    const chamadasTeste = await esperarDoc(
+      dp,
+      'chamadas',
+      (d) =>
+        (d?.documents ?? []).some(
+          (x) =>
+            x.fields?.grupoId?.stringValue === grupoId &&
+            x.fields?.status?.stringValue === 'aberta' &&
+            !x.name?.endsWith(`/${chamadaId}`) &&
+            !x.name?.endsWith(`/${chamadaCancelavelId}`),
+        ),
+    );
+    const chamadaTeste = (chamadasTeste?.documents ?? []).find(
+      (x) =>
+        x.fields?.grupoId?.stringValue === grupoId &&
+        x.fields?.status?.stringValue === 'aberta' &&
+        !x.name?.endsWith(`/${chamadaId}`) &&
+        !x.name?.endsWith(`/${chamadaCancelavelId}`),
+    );
+    const chamadaTesteId = chamadaTeste?.name?.split('/').pop();
+    await btn(dp, 'Encerrar chamada').waitFor({ state: 'visible', timeout: 30000 });
+    await btn(dp, 'Encerrar chamada').click();
+    await btn(dp, 'Iniciar IDA').waitFor({ state: 'visible', timeout: 30000 });
+    await btn(dp, 'Iniciar IDA').click();
+    await btnUltimo(dp, 'Iniciar IDA').click();
+    const viagensTeste = await esperarViagem(
+      dp,
+      chamadaTesteId,
+      (d) => ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemTeste = viagensTeste.find(
+      (d) => ['emAndamento', 'em_andamento'].includes(d?.fields?.status?.stringValue),
+    );
+    const viagemTesteId = viagemTeste?.name?.split('/').pop();
+    passo(
+      26,
+      'Fase 4: viagem de teste inicia para cancelamento',
+      Boolean(chamadaTesteId && viagemTesteId),
+      `chamada=${chamadaTesteId}; viagem=${viagemTesteId}`,
+    );
+
+    // 27: cancelamento separado da conclusão, com data e motivo.
+    const motivoViagem = 'Teste de cancelamento';
+    await btn(dp, 'Cancelar viagem').click();
+    await campo(dp, 'Motivo do cancelamento').last().fill(motivoViagem);
+    await btnUltimo(dp, 'Cancelar viagem').click();
+    const viagemCancelada = await esperarDoc(
+      dp,
+      `viagens/${viagemTesteId}`,
+      (d) =>
+        d?.fields?.status?.stringValue === 'cancelada' &&
+        Boolean(d?.fields?.canceladaEm?.timestampValue),
+    );
+    passo(
+      27,
+      'Fase 4: viagem em andamento é cancelada com motivo',
+      viagemCancelada?.fields?.status?.stringValue === 'cancelada' &&
+        viagemCancelada?.fields?.motivoCancelamento?.stringValue === motivoViagem,
+      `viagens/${viagemTesteId}=${textoDoc(viagemCancelada)?.slice(0, 300)}`,
+    );
+
+    // 28: viagem cancelada não aparece como concluída.
+    await waitText(dp, 'Viagem cancelada', 30000);
+    const viagensDaTeste = await viagensDaChamada(dp, chamadaTesteId);
+    const canceladasDaTeste = viagensDaTeste.filter(
+      (d) => d?.fields?.status?.stringValue === 'cancelada',
+    );
+    const finalizadasDaTeste = viagensDaTeste.filter(
+      (d) => d?.fields?.status?.stringValue === 'finalizada',
+    );
+    const painelConcluido = await dp
+      .getByText('Operação concluída com sucesso', { exact: false })
+      .count();
+    passo(
+      28,
+      'Fase 4: viagem cancelada não aparece como concluída',
+      canceladasDaTeste.length === 1 &&
+        finalizadasDaTeste.length === 0 &&
+        painelConcluido === 0,
+      `canceladas=${canceladasDaTeste.length}; finalizadas=${finalizadasDaTeste.length}; avisoConcluido=${painelConcluido}`,
+    );
+
+    // 29: refresh e novo login confirmam os históricos nas duas sessões.
+    await dp.reload({ waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, 'RESUMO', 30000);
+    await dp.goto(`${BASE}#/driver/home`, { waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, 'Viagem cancelada', 30000);
+    await dp.goto(`${BASE}#/driver/history`, { waitUntil: 'load' });
+    await a11y(dp);
+    await waitText(dp, ' · VOLTA', 30000);
+    const historicoMotorista = {
+      concluidas: await dp.getByText('Concluída', { exact: false }).count(),
+      canceladas: await dp.getByText('Cancelada', { exact: false }).count(),
+    };
+
+    const ndp = await novoContexto(browser, 'motorista-novo-login');
+    await entrar(ndp, DRIVER, 'VanGo · conectado ao Firebase');
+    await ndp.goto(`${BASE}#/driver/history`, { waitUntil: 'load' });
+    await a11y(ndp);
+    await waitText(ndp, ' · VOLTA', 30000);
+    const historicoNovoLogin = {
+      concluidas: await ndp.getByText('Concluída', { exact: false }).count(),
+      canceladas: await ndp.getByText('Cancelada', { exact: false }).count(),
+    };
+
+    const nap = await novoContexto(browser, 'aluno-novo-login');
+    await entrar(nap, ALUNO, 'Meu padrão semanal');
+    await waitText(nap, 'Viagem de ida cancelada', 30000);
+    const viagensFinaisEmulator = await viagensDaChamada(ndp, chamadaId);
+    const finalizadasNovoLogin = viagensFinaisEmulator.filter(
+      (d) => d?.fields?.status?.stringValue === 'finalizada',
+    );
+    passo(
+      29,
+      'Fase 4: refresh e novo login preservam os históricos',
+      historicoMotorista.concluidas >= 2 &&
+        historicoMotorista.canceladas >= 1 &&
+        historicoNovoLogin.concluidas >= 2 &&
+        historicoNovoLogin.canceladas >= 1 &&
+        finalizadasNovoLogin.length === 2,
+      `motorista=${JSON.stringify(historicoMotorista)}; novoLogin=${JSON.stringify(historicoNovoLogin)}; finalizadasFirestore=${finalizadasNovoLogin.length}`,
+    );
+
     return {
       ok: results.every((r) => r.ok),
       sufixo,
       contextoMotorista: 'isolado',
       contextoAluno: 'isolado',
-      ids: { driverUid, alunoUid, grupoId, codigo, chamadaId },
+      ids: {
+        driverUid,
+        alunoUid,
+        grupoId,
+        codigo,
+        chamadaId,
+        viagemIdaId,
+        viagemVoltaId,
+        chamadaCancelavelId,
+        chamadaTesteId,
+        viagemTesteId,
+      },
       emails: DRIVER.email + ' | ' + ALUNO.email,
-      results,
-      erros: erros.filter((e) => !e.includes('favicon')),
+      total: results.length,
+      resumo: results.map((r) => `${r.n}:${r.ok ? 'OK' : 'FALHA'}`).join(' '),
+      falhas: results.filter((r) => !r.ok),
+      erros: erros.filter((e) => !e.includes('favicon')).slice(0, 12),
     };
   } catch (error) {
-    return { falhou: String(error?.stack ?? error), results, erros, estados: await estados() };
+    const estadosAtuais = await estados();
+    return {
+      // Diagnóstico primeiro: a saída do console pode truncar o final.
+      estadosResumo: estadosAtuais.map((e) => ({
+        url: e.url,
+        texto: e.textos?.join(' | ').slice(0, 500),
+        valores: e.valores,
+      })),
+      falhou: String(error?.stack ?? error),
+      results,
+      erros,
+      estados: estadosAtuais,
+    };
   } finally {
     for (const ctx of contexts) {
       try { await ctx.close(); } catch (_) {}

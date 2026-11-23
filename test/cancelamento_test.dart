@@ -62,7 +62,7 @@ void main() {
 
       expect(StatusViagem.agendada.label, 'Agendada');
       expect(StatusViagem.emAndamento.label, 'Em andamento');
-      expect(StatusViagem.encerrada.label, 'Encerrada');
+      expect(StatusViagem.encerrada.label, 'Concluída');
       expect(StatusViagem.cancelada.label, 'Cancelada');
     });
 
@@ -84,7 +84,7 @@ void main() {
       final resultado = await store.iniciarViagem(SentidoViagem.ida);
 
       expect(resultado.sucesso, isFalse);
-      expect(resultado.mensagem, contains('cancelada'));
+      expect(resultado.mensagem, contains('não pode ser iniciada novamente'));
     });
 
     test('6. impede cancelar novamente chamada já cancelada', () async {

@@ -108,9 +108,10 @@ void main() {
     expect(store.autenticado, isFalse);
   });
 
-  testWidgets('cadastro de motorista abre Minhas vans sem criar uma van', (
+  testWidgets('cadastro de motorista abre o dashboard sem criar uma van', (
     tester,
   ) async {
+    _usarTelaAlta(tester);
     final store = DemoStore.demo();
     final router = criarRouter(store);
     await tester.pumpWidget(_criarApp(store, router));
@@ -120,23 +121,24 @@ void main() {
     expect(find.text('Nome da van / rota'), findsNothing);
 
     final campos = find.byType(TextFormField);
-    expect(campos, findsNWidgets(4));
+    expect(campos, findsNWidgets(5));
     await tester.enterText(campos.at(0), 'Joao Motorista');
     await tester.enterText(campos.at(1), 'joao@teste.com');
     await tester.enterText(campos.at(2), '15999999999');
     await tester.enterText(campos.at(3), '123456');
+    await tester.enterText(campos.at(4), '123456');
 
     await tester.tap(find.text('Criar conta de motorista'));
     await tester.pumpAndSettle();
 
-    expect(router.state.uri.path, '/driver/vans');
+    expect(router.state.uri.path, '/driver/dashboard');
     expect(find.text('Você ainda não tem uma van'), findsOneWidget);
     expect(find.text('Criar minha primeira van'), findsOneWidget);
     expect(store.usuarioAtual!.grupoId, isNull);
 
     router.go('/driver/home');
     await tester.pumpAndSettle();
-    expect(router.state.uri.path, '/driver/vans');
+    expect(router.state.uri.path, '/driver/dashboard');
   });
 
   testWidgets('cadastro de aluno pela tela abre a Home sem grupo', (
@@ -156,12 +158,14 @@ void main() {
     await tester.pumpAndSettle();
 
     final campos = find.byType(TextFormField);
-    expect(campos, findsNWidgets(5));
+    expect(campos, findsNWidgets(7));
     await tester.enterText(campos.at(0), 'Maria Aluna');
     await tester.enterText(campos.at(1), 'maria@teste.com');
     await tester.enterText(campos.at(2), '15988888888');
-    await tester.enterText(campos.at(3), 'Rua A, 10');
-    await tester.enterText(campos.at(4), '123456');
+    await tester.enterText(campos.at(3), 'IFSP');
+    await tester.enterText(campos.at(4), 'Rua A, 10');
+    await tester.enterText(campos.at(5), '18000000');
+    await tester.enterText(campos.at(6), '123456');
 
     await tester.tap(find.text('Criar conta de aluno').first);
     await tester.pumpAndSettle();
@@ -371,7 +375,7 @@ void main() {
     await tester.pumpWidget(_criarApp(store, router));
     await tester.pump();
     await tester.pump();
-    expect(router.state.uri.path, '/driver/vans');
+    expect(router.state.uri.path, '/driver/dashboard');
 
     await tester.tap(find.byTooltip('Meu perfil'));
     await tester.pumpAndSettle();
