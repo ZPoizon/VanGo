@@ -15,6 +15,14 @@
         { "fieldPath": "grupoId", "order": "ASCENDING" },
         { "fieldPath": "dataViagem", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "notificacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "tipo", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -16,17 +16,22 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
     }
 
+    // `let` evita multiplicar get() em gravações atômicas (batch): o limite de
+    // leituras por regra é compartilhado por todas as escritas do mesmo batch.
     function perfilEh(nome) {
+      let perfil = dadosDoPerfil();
       return autenticado()
-        && dadosDoPerfil().get('perfil', '').lower() == nome;
+        && perfil.get('perfil', '').lower() == nome;
     }
 
     function perfilAtivoEh(nome) {
-      return perfilEh(nome)
-        && dadosDoPerfil().get('ativo', false) == true
+      let perfil = dadosDoPerfil();
+      return autenticado()
+        && perfil.get('perfil', '').lower() == nome
+        && perfil.get('ativo', false) == true
         && (
-          !dadosDoPerfil().keys().hasAny(['status'])
-          || dadosDoPerfil().get('status', '').lower() == 'ativo'
+          !perfil.keys().hasAny(['status'])
+          || perfil.get('status', '').lower() == 'ativo'
         );
     }
 
@@ -46,10 +51,18 @@ service cloud.firestore {
 
     /// Posse real do grupo, usada para motoristas com ou sem grupo legado.
     function grupoPertenceAoMotorista(dados) {
-      return perfilAtivoEh('motorista')
-        && dados.get('grupoId', '') is string
-        && dados.get('grupoId', '').size() > 0
-        && get(/databases/$(database)/documents/grupos/$(dados.get('grupoId', ''))).data.get('motoristaId', '') == request.auth.uid;
+      let perfil = dadosDoPerfil();
+      let grupoId = dados.get('grupoId', '');
+      return autenticado()
+        && perfil.get('perfil', '').lower() == 'motorista'
+        && perfil.get('ativo', false) == true
+        && (
+          !perfil.keys().hasAny(['status'])
+          || perfil.get('status', '').lower() == 'ativo'
+        )
+        && grupoId is string
+        && grupoId.size() > 0
+        && get(/databases/$(database)/documents/grupos/$(grupoId)).data.get('motoristaId', '') == request.auth.uid;
     }
 
     // Não existe grupo implícito: um documento sem grupoId não herda o van
@@ -63,9 +76,29 @@ service cloud.firestore {
     }
 
     function mesmoGrupo(dados) {
-      return perfilEh('motorista')
-        ? grupoPertenceAoMotorista(dados)
-        : grupoDoDado(dados) == meuGrupo();
+      let perfil = dadosDoPerfil();
+      return autenticado()
+        && (perfil.get('perfil', '').lower() == 'motorista'
+          ? grupoPertenceAoMotorista(dados)
+          : grupoDoDado(dados) == perfil.get('grupoId', ''));
+    }
+
+    /// Motorista ativo e dono da van deste documento usando um único get() de
+    /// perfil e um de grupo. Mantém o custo previsível mesmo em batches de
+    /// viagem + controle de uma mesma van.
+    function motoristaDaVan(dados) {
+      let perfil = dadosDoPerfil();
+      let grupoId = dados.get('grupoId', '');
+      return autenticado()
+        && perfil.get('perfil', '').lower() == 'motorista'
+        && perfil.get('ativo', false) == true
+        && (
+          !perfil.keys().hasAny(['status'])
+          || perfil.get('status', '').lower() == 'ativo'
+        )
+        && grupoId is string
+        && grupoId.size() > 0
+        && get(/databases/$(database)/documents/grupos/$(grupoId)).data.get('motoristaId', '') == request.auth.uid;
     }
 
     function motoristaDoGrupo(dados) {
@@ -108,6 +141,17 @@ service cloud.firestore {
         || request.resource.data.get(campo, null) is string;
     }
 
+    /// `fotoUrl` guarda apenas a URL de download do Storage: nunca base64 ou
+    /// campos arbitrários, mesmo que um cliente tente burlar a validação local.
+    function fotoUrlValida() {
+      return request.resource.data.get('fotoUrl', null) == null
+        || (
+          request.resource.data.get('fotoUrl', null) is string
+          && request.resource.data.get('fotoUrl', '').size() <= 1024
+          && request.resource.data.get('fotoUrl', '').matches('https?://.*')
+        );
+    }
+
     /// Validação comum para a criação do próprio perfil. Um usuário autenticado
     /// só pode gravar usuarios/{uid} quando uid é o seu próprio UID do Auth.
     function cadastroBaseValido(uid) {
@@ -115,8 +159,8 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly([
           'nome', 'email', 'perfil', 'status', 'ativo', 'telefone', 'fotoUrl',
-          'instituicao', 'turno', 'enderecoEmbarque', 'referenciaEndereco',
-          'grupoId', 'criadoEm', 'atualizadoEm'
+          'instituicao', 'turno', 'turnoPersonalizado', 'enderecoEmbarque',
+          'cep', 'referenciaEndereco', 'grupoId', 'criadoEm', 'atualizadoEm'
         ])
         && request.resource.data.get('nome', '') is string
         && request.resource.data.get('nome', '').size() >= 3
@@ -134,11 +178,24 @@ service cloud.firestore {
         && (request.resource.data.get('telefone', null) == null
           || request.resource.data.get('telefone', '').size() >= 10)
         && textoOuNulo('fotoUrl')
+        && fotoUrlValida()
         && textoOuNulo('instituicao')
         && textoOuNulo('turno')
+        && textoOuNulo('turnoPersonalizado')
         && (request.resource.data.get('turno', null) == null
-          || request.resource.data.get('turno', '').lower() in ['matutino', 'noturno'])
+          || (
+            request.resource.data.get('turno', '').lower() in [
+              'matutino', 'vespertino', 'noturno', 'outro']
+            && (request.resource.data.get('turno', '').lower() != 'outro'
+              || (
+                request.resource.data.get('turnoPersonalizado', null) is string
+                && request.resource.data.get('turnoPersonalizado', '').size() > 0
+              ))
+          ))
         && textoOuNulo('enderecoEmbarque')
+        && textoOuNulo('cep')
+        && (request.resource.data.get('cep', null) == null
+          || request.resource.data.get('cep', '').matches('^[0-9]{5}-[0-9]{3}$'))
         && textoOuNulo('referenciaEndereco')
         // Cadastro nunca escolhe grupo: nenhum vínculo é gravado no create.
         && (!request.resource.data.keys().hasAny(['grupoId'])
@@ -187,9 +244,25 @@ service cloud.firestore {
           && mesmoGrupo(resource.data)
           && mesmoGrupo(request.resource.data)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'nome', 'telefone', 'instituicao', 'turno', 'enderecoEmbarque',
-            'referenciaEndereco', 'fotoUrl', 'atualizadoEm'
-          ]);
+            'nome', 'telefone', 'instituicao', 'turno', 'turnoPersonalizado',
+            'enderecoEmbarque', 'cep', 'referenciaEndereco', 'fotoUrl',
+            'atualizadoEm'
+          ])
+          && textoOuNulo('cep')
+          && fotoUrlValida()
+          && (request.resource.data.get('cep', null) == null
+            || request.resource.data.get('cep', '').matches('^[0-9]{5}-[0-9]{3}$'))
+          && textoOuNulo('turnoPersonalizado')
+          && (request.resource.data.get('turno', null) == null
+            || (
+              request.resource.data.get('turno', '').lower() in [
+                'matutino', 'vespertino', 'noturno', 'outro']
+              && (request.resource.data.get('turno', '').lower() != 'outro'
+                || (
+                  request.resource.data.get('turnoPersonalizado', null) is string
+                  && request.resource.data.get('turnoPersonalizado', '').size() > 0
+                ))
+            ));
       }
 
       /// O motorista edita somente seus dados pessoais. Informações de van,
@@ -200,7 +273,8 @@ service cloud.firestore {
           && resource.data.get('perfil', '').lower() == 'motorista'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'nome', 'telefone', 'fotoUrl', 'atualizadoEm'
-          ]);
+          ])
+          && fotoUrlValida();
       }
 
       allow get: if autenticado()
@@ -225,6 +299,25 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'grupoId', 'status', 'ativo', 'atualizadoEm'
           ]))
+        // Após uma recusa o aluno pode tentar novamente, inclusive na mesma
+        // van. O perfil só volta a pendente se a solicitação correspondente
+        // for reaberta no mesmo commit, apontando para o mesmo grupo.
+        || (autenticado()
+          && request.auth.uid == userId
+          && resource.data.get('perfil', '').lower() == 'aluno'
+          && resource.data.get('status', '').lower() in ['recusado', 'desativado']
+          && request.resource.data.get('grupoId', '') is string
+          && request.resource.data.get('grupoId', '').size() > 0
+          && exists(/databases/$(database)/documents/grupos/$(request.resource.data.grupoId))
+          && request.resource.data.get('status', '') == 'pendente'
+          && request.resource.data.get('ativo', true) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'grupoId', 'status', 'ativo', 'atualizadoEm'
+          ])
+          && getAfter(/databases/$(database)/documents/solicitacoes/$(userId)).data.get('alunoId', '') == request.auth.uid
+          && getAfter(/databases/$(database)/documents/solicitacoes/$(userId)).data.get('grupoId', '')
+            == request.resource.data.get('grupoId', '')
+          && getAfter(/databases/$(database)/documents/solicitacoes/$(userId)).data.get('status', '') == 'pendente')
         // Motorista aprova/recusa/desativa alunos do seu grupo. A solicitação
         // correspondente é atualizada no mesmo lote pelo cliente.
         || (ehMotorista()
@@ -317,13 +410,15 @@ service cloud.firestore {
         && (ehAlunoAtivo() || ehMotorista())
         && mesmoGrupo(resource.data);
 
-      allow create: if ehMotorista()
-        && mesmoGrupo(request.resource.data)
+      allow create: if resource == null
+        && motoristaDaVan(request.resource.data)
         && request.resource.data.get('motoristaId', '') == request.auth.uid;
 
-      allow update: if ehMotorista()
-        && mesmoGrupo(resource.data)
-        && mesmoGrupo(request.resource.data)
+      // grupoId/motoristaId não entram em affectedKeys, então basta validar a
+      // posse no documento atual: isso mantém o batch de início de viagem
+      // dentro do limite de leituras do Firestore.
+      allow update: if resource != null
+        && motoristaDaVan(resource.data)
         && request.resource.data.get('motoristaId', '') == resource.data.get('motoristaId', '')
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'encerradaEm', 'canceladaEm', 'motivoCancelamento',
@@ -456,36 +551,83 @@ service cloud.firestore {
         && (ehAlunoAtivo() || ehMotorista())
         && mesmoGrupo(resource.data);
 
-      allow create: if ehMotorista()
-        && mesmoGrupo(request.resource.data)
-        && request.resource.data.get('motoristaId', '') == request.auth.uid;
+      allow create: if resource == null
+        && motoristaDaVan(request.resource.data)
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        // O app serializa o enum como `emAndamento`; registros/versões antigas
+        // usam `em_andamento`. Ambos representam a viagem em andamento.
+        && request.resource.data.get('status', '') in ['emAndamento', 'em_andamento'];
 
-      allow update: if (
-          ehMotorista()
-          && mesmoGrupo(resource.data)
-          && mesmoGrupo(request.resource.data)
-          && request.resource.data.get('motoristaId', '') == resource.data.get('motoristaId', '')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'iniciadaEm', 'encerradaEm', 'canceladaEm',
-            'motivoCancelamento', 'confirmacoes', 'atualizadoEm'
-          ])
-          && resource.data.get('status', '') != 'finalizada'
-          && resource.data.get('status', '') != 'cancelada'
-          && (
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
-            || request.resource.data.get('status', '') in ['em_andamento', 'finalizada', 'cancelada']
+      allow update: if resource != null && (
+          (
+            motoristaDaVan(resource.data)
+            && request.resource.data.get('motoristaId', '') == resource.data.get('motoristaId', '')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'iniciadaEm', 'encerradaEm', 'canceladaEm',
+              'motivoCancelamento', 'confirmacoes', 'atualizadoEm'
+            ])
+            && resource.data.get('status', '') != 'finalizada'
+            && resource.data.get('status', '') != 'cancelada'
+            && (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+              || request.resource.data.get('status', '')
+                in ['emAndamento', 'em_andamento', 'finalizada', 'cancelada']
+            )
+          ) || (
+            // Aluno ativo atualiza somente seus próprios sinais na viagem.
+            ehAlunoAtivo()
+            && mesmoGrupo(resource.data)
+            && mesmoGrupo(request.resource.data)
+            && request.resource.data.get('motoristaId', '')
+              == resource.data.get('motoristaId', '')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'confirmacoes'
+            ])
+            && confirmacoesAlteradasValidas(resource.data, request.resource.data)
           )
-        ) || (
-          // Aluno ativo atualiza somente seus próprios sinais na viagem.
-          ehAlunoAtivo()
-          && mesmoGrupo(resource.data)
-          && mesmoGrupo(request.resource.data)
-          && request.resource.data.get('motoristaId', '')
-            == resource.data.get('motoristaId', '')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'confirmacoes'
-          ])
-          && confirmacoesAlteradasValidas(resource.data, request.resource.data)
+        );
+
+      allow delete: if false;
+    }
+
+    // Trava operacional por van: apenas uma viagem pode estar em andamento.
+    // O documento de controle acompanha a viagem em viagens/{viagemId}, cujo
+    // histórico nunca é apagado.
+    match /controles_viagem/{grupoId} {
+      allow get, list: if autenticado()
+        && (ehAlunoAtivo() || ehMotorista())
+        && mesmoGrupo(resource.data);
+
+      allow create: if resource == null
+        && motoristaDaVan(request.resource.data)
+        && grupoId == request.resource.data.get('grupoId', '')
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        && request.resource.data.get('status', '') == 'emAndamento'
+        && request.resource.data.get('viagemId', '') is string
+        && request.resource.data.get('viagemId', '').size() > 0
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'motoristaId', 'viagemId', 'status', 'atualizadoEm'
+        ]);
+
+      allow update: if resource != null
+        && motoristaDaVan(resource.data)
+        && grupoId == resource.data.get('grupoId', '')
+        && resource.data.get('motoristaId', '') == request.auth.uid
+        && request.resource.data.get('motoristaId', '') == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'viagemId', 'status', 'atualizadoEm'
+        ])
+        && (
+          (
+            resource.data.get('status', '') == 'emAndamento'
+            && request.resource.data.get('status', '') in ['finalizada', 'cancelada']
+            && request.resource.data.get('viagemId', '')
+              == resource.data.get('viagemId', '')
+          ) || (
+            resource.data.get('status', '') in ['finalizada', 'cancelada']
+            && request.resource.data.get('status', '') == 'emAndamento'
+            && request.resource.data.get('viagemId', '') != resource.data.get('viagemId', '')
+          )
         );
 
       allow delete: if false;
@@ -515,9 +657,21 @@ service cloud.firestore {
       // Motorista do grupo lista todas as solicitações do seu grupo.
       // A posse é verificada no documento do grupo, sem depender de grupoId
       // global no perfil do motorista.
+      // Motorista dono do grupo e próprio aluno (a leitura pontual da própria
+      // solicitação é necessária para a transação idempotente de entrada).
       allow get, list: if autenticado()
-        && ehMotorista()
-        && get(/databases/$(database)/documents/grupos/$(resource.data.grupoId)).data.get('motoristaId', '') == request.auth.uid;
+        && (
+          (
+            ehMotorista()
+            && get(/databases/$(database)/documents/grupos/$(resource.data.grupoId)).data.get('motoristaId', '') == request.auth.uid
+          ) || (
+            solicitacaoId == request.auth.uid
+            && (
+              !exists(/databases/$(database)/documents/solicitacoes/$(solicitacaoId))
+              || resource.data.get('alunoId', '') == request.auth.uid
+            )
+          )
+        );
 
       // Motorista aprova/recusa alterando status
       allow update: if (ehMotorista()
@@ -594,7 +748,7 @@ service cloud.firestore {
       }
 
       function dadosDaNotificacao() {
-        return request.resource.data.dados;
+        return request.resource.data.get('dados', {});
       }
 
       function chamadaDaNotificacao() {
@@ -672,8 +826,44 @@ service cloud.firestore {
           && sentidoAtualValido();
       }
 
-      // Notificações internas do motorista continuam permitidas; o novo tipo
-      // é restrito ao aluno autor da alteração na mesma transação.
+      /// Nova solicitação de entrada: gravada pelo próprio aluno no mesmo
+      /// commit da solicitação e do vínculo do perfil. O ID determinístico e a
+      /// checagem de existência no cliente impedem eventos duplicados; as regras
+      /// impedem destinatário, grupo ou nome arbitrários. `alunoIds` vazio mantém
+      /// a Cloud Function existente sem destinatários de push para este tipo.
+      function solicitacaoEntradaValida() {
+        let alunoId = dadosDaNotificacao().get('solicitacaoId', '');
+        let grupoId = request.resource.data.get('grupoId', '');
+        let caminhoSolicitacao = /databases/$(database)/documents/solicitacoes/$(alunoId);
+        let caminhoPerfil = /databases/$(database)/documents/usuarios/$(request.auth.uid);
+        return perfilEh('aluno')
+          && request.auth.uid == alunoId
+          && notificacaoId == 'solicitacao_entrada_' + alunoId + '_' + grupoId
+          && request.resource.data.tipo == 'solicitacao_entrada'
+          && request.resource.data.keys().hasAll(chavesNotificacao())
+          && request.resource.data.keys().hasOnly(chavesNotificacao())
+          && request.resource.data.titulo == 'Solicitação de entrada'
+          && request.resource.data.corpo == 'Um aluno solicitou entrada nesta van.'
+          && request.resource.data.alunoIds is list
+          && request.resource.data.alunoIds.size() == 0
+          && request.resource.data.criadoEm == request.time
+          && grupoId is string
+          && grupoId.size() > 0
+          && getAfter(caminhoSolicitacao).data.get('alunoId', '') == request.auth.uid
+          && getAfter(caminhoSolicitacao).data.get('grupoId', '') == grupoId
+          && getAfter(caminhoSolicitacao).data.get('status', '') == 'pendente'
+          && getAfter(caminhoPerfil).data.get('grupoId', '') == grupoId
+          && getAfter(caminhoPerfil).data.get('status', '').lower() == 'pendente'
+          && dadosDaNotificacao().keys().hasOnly([
+            'solicitacaoId', 'destinatarioId', 'alunoNome'
+          ])
+          && dadosDaNotificacao().destinatarioId
+            == get(/databases/$(database)/documents/grupos/$(grupoId)).data.get('motoristaId', '')
+          && dadosDaNotificacao().alunoNome == getAfter(caminhoPerfil).data.get('nome', '');
+      }
+
+      // Notificações internas do motorista continuam permitidas; os avisos de
+      // presença e de entrada são restritos ao aluno autor na mesma transação.
       allow create: if (ehMotorista()
           && request.resource.data.tipo in ['chamada_aberta', 'viagem_cancelada', 'chegada']
           && grupoPertenceAoMotorista(request.resource.data)
@@ -687,17 +877,46 @@ service cloud.firestore {
             request.resource.data.get('alunoIds', []),
             request.resource.data.get('grupoId', '')
           ))
-        || alteracaoRespostaValida();
+        || alteracaoRespostaValida()
+        || solicitacaoEntradaValida();
 
       // Alunos do grupo leem suas notificações. Avisos de alteração de presença
       // têm `alunoIds` vazio e são destinados ao motorista da van.
-      allow get, list: if ehAlunoAtivo()
+      // A leitura pontual da transação idempotente pode acontecer antes de o
+      // aviso existir: `resource` é nulo nesse caso e não pode ser acessado.
+      // `exists()` com o ID da regra de get é a forma segura de proteger as
+      // expressões abaixo sem quebrar as listagens (onde o curinga é nulo).
+      allow get: if exists(/databases/$(database)/documents/notificacoes/$(notificacaoId))
+        && ehAlunoAtivo()
         && resource.data.get('grupoId', '') == meuGrupo()
         && meuGrupo().size() > 0
         && request.auth.uid in resource.data.get('alunoIds', []);
 
-      allow get: if ehMotorista()
+      allow list: if ehAlunoAtivo()
+        && resource.data.get('grupoId', '') == meuGrupo()
+        && meuGrupo().size() > 0
+        && request.auth.uid in resource.data.get('alunoIds', []);
+
+      allow get: if exists(/databases/$(database)/documents/notificacoes/$(notificacaoId))
+        && ehMotorista()
         && grupoPertenceAoMotorista(resource.data);
+
+      // Leitura pontual do próprio aviso para a idempotência da transação.
+      // Nenhuma listagem é liberada ao aluno.
+      allow get: if exists(/databases/$(database)/documents/notificacoes/$(notificacaoId))
+        && resource.data.get('tipo', '') == 'solicitacao_entrada'
+        && resource.data.get('dados', {}).get('solicitacaoId', '')
+          == request.auth.uid;
+
+      // Leitura prévia na transação, antes de o aviso existir. Esta regra não
+      // toca em `resource`: ela só vale para um ID determinístico do próprio
+      // aluno, então não abre leitura de documentos de terceiros.
+      allow get: if autenticado()
+        && !exists(/databases/$(database)/documents/notificacoes/$(notificacaoId))
+        && notificacaoId.split('_').size() >= 3
+        && notificacaoId.split('_')[0] == 'solicitacao'
+        && notificacaoId.split('_')[1] == 'entrada'
+        && notificacaoId.split('_')[2] == request.auth.uid;
 
       allow list: if ehMotorista()
         && grupoPertenceAoMotorista(resource.data);

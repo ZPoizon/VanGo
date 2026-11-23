@@ -2,17 +2,38 @@ rules_version = '2';
 
 // Regras do Cloud Storage do VanGo.
 //
-// Única pasta usada pelo app: usuarios/{uid}/foto.{ext} (foto de perfil).
+// Única pasta usada pelo app: usuarios/{uid}/foto.{jpg|jpeg|png|webp}.
+// O nome do arquivo é sempre derivado do UID autenticado pelo cliente; aqui
+// a unidade de autorização é o {uid} do caminho.
 
 service firebase.storage {
   match /b/{bucket}/o {
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function dono(uid) {
+      return autenticado() && request.auth.uid == uid;
+    }
+
+    function nomeFotoValido(arquivo) {
+      return arquivo.matches('foto\\.(jpg|jpeg|png|webp)');
+    }
+
     match /usuarios/{uid}/{arquivo} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.auth.uid == uid
-        && arquivo.matches('foto\\..*')
+      // Fotos só são legíveis por usuários autenticados no app (motoristas e
+      // alunos precisam ver o avatar uns dos outros). Nunca público/anonímico.
+      allow read: if autenticado();
+
+      // Upload/substituição: tipo e tamanho são validados também no cliente.
+      allow create, update: if dono(uid)
+        && nomeFotoValido(arquivo)
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+
+      // Exclusão: request.resource é nulo em delete, por isso a validação de
+      // conteúdo não se aplica aqui.
+      allow delete: if dono(uid) && nomeFotoValido(arquivo);
     }
 
     match /{allPaths=**} {

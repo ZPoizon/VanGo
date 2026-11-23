@@ -6,11 +6,13 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/notifications/push_notifications.dart';
+import '../../core/profile_photo.dart';
 import '../../core/resultado.dart';
 import '../../core/selecao_grupo_store.dart';
 import '../../core/store.dart';
 import '../../models/chamada.dart';
 import '../../models/grupo.dart';
+import '../../models/notificacao_entrada.dart';
 import '../../models/notificacao_resposta.dart';
 import '../../models/padrao_semanal.dart';
 import '../../models/presenca.dart';
@@ -60,6 +62,12 @@ class FirebaseStore extends VanGoStore {
   _notificacoesRespostaSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _padraoSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _perfilSub;
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
+  _notificacoesEntradaSubs =
+      <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
+  _solicitacoesGrupoSubs =
+      <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
 
   List<Usuario> _usuarios = <Usuario>[];
   final Map<String, RespostaPresenca> _respostas = <String, RespostaPresenca>{};
@@ -67,6 +75,13 @@ class FirebaseStore extends VanGoStore {
       <NotificacaoResposta>[];
   final List<QueryDocumentSnapshot<Map<String, dynamic>>>
   _notificacoesRespostaDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  final Map<String, QueryDocumentSnapshot<Map<String, dynamic>>>
+  _notificacoesEntradaDocs =
+      <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+  final List<NotificacaoEntrada> _notificacoesEntrada =
+      <NotificacaoEntrada>[];
+  final Map<String, String> _statusSolicitacoes = <String, String>{};
+  final Map<String, String> _grupoSolicitacoes = <String, String>{};
   List<Viagem> _historico = <Viagem>[];
   Chamada? _chamada;
   Viagem? _viagemAtual;
@@ -139,6 +154,25 @@ class FirebaseStore extends VanGoStore {
 
   @override
   List<Usuario> get solicitacoesPendentes => List.unmodifiable(_solicitacoes);
+
+  @override
+  List<NotificacaoEntrada> get notificacoesEntrada =>
+      List<NotificacaoEntrada>.unmodifiable(_notificacoesEntrada);
+
+  @override
+  Map<String, int> get pendentesPorGrupo {
+    final contagem = <String, int>{
+      for (final grupo in meusGrupos) grupo.id: 0,
+    };
+    for (final entrada in _statusSolicitacoes.entries) {
+      if (entrada.value != 'pendente') continue;
+      final grupoId = _grupoSolicitacoes[entrada.key];
+      if (grupoId != null && contagem.containsKey(grupoId)) {
+        contagem[grupoId] = contagem[grupoId]! + 1;
+      }
+    }
+    return contagem;
+  }
 
   @override
   Future<void> inicializar() async {
@@ -477,6 +511,10 @@ class FirebaseStore extends VanGoStore {
     _respostas.clear();
     _notificacoesResposta.clear();
     _notificacoesRespostaDocs.clear();
+    _notificacoesEntrada.clear();
+    _notificacoesEntradaDocs.clear();
+    _statusSolicitacoes.clear();
+    _grupoSolicitacoes.clear();
     _chamada = null;
     _viagemAtual = null;
     _historico = <Viagem>[];
@@ -561,6 +599,10 @@ class FirebaseStore extends VanGoStore {
             ),
       );
       _assinarNotificacoesResposta(grupo);
+      // Solicitações/avisos de todas as vans, não somente da van ativa: o
+      // motorista precisa identificar a qual grupo cada pendência pertence.
+      _assinarSolicitacoesDasVans();
+      _assinarNotificacoesEntrada();
     } else {
       _assinarPerfil(uidAutenticado);
     }
@@ -669,7 +711,14 @@ class FirebaseStore extends VanGoStore {
   void _aoAtualizarChamada(QuerySnapshot<Map<String, dynamic>> snapshot) {
     final anterior = _chamada?.id;
     final chamadas = snapshot.docs.map(chamadaFromDoc).toList()
-      ..sort((a, b) => b.dataServico.compareTo(a.dataServico));
+      ..sort((a, b) {
+        final porServico = b.dataServico.compareTo(a.dataServico);
+        if (porServico != 0) return porServico;
+        // Várias chamadas podem compartilhar a mesma data de serviço. Sem o
+        // desempate pela criação, a mais antiga poderia continuar selecionada
+        // depois de abrir uma nova, escondendo Encerrar/Cancelar chamada.
+        return b.criadaEm.compareTo(a.criadaEm);
+      });
     _chamada = chamadas.isEmpty ? null : chamadas.first;
     if (_chamada?.id != anterior) _assinarRespostas();
     _notificar();
@@ -685,9 +734,23 @@ class FirebaseStore extends VanGoStore {
       }
     }
     _viagemAtual = atual;
-    _historico = viagens
-        .where((viagem) => viagem.status == StatusViagem.encerrada)
-        .toList();
+    // Concluídas e canceladas permanecem no histórico; canceladas também
+    // precisam reaparecer depois de recarregar a página.
+    _historico =
+        viagens
+            .where(
+              (viagem) =>
+                  viagem.status == StatusViagem.encerrada ||
+                  viagem.status == StatusViagem.cancelada,
+            )
+            .toList()
+          ..sort((a, b) {
+            final fimA =
+                a.encerradaEm ?? a.canceladaEm ?? a.iniciadaEm ?? a.dataViagem;
+            final fimB =
+                b.encerradaEm ?? b.canceladaEm ?? b.iniciadaEm ?? b.dataViagem;
+            return fimB.compareTo(fimA);
+          });
     _notificar();
   }
 
@@ -794,6 +857,129 @@ class FirebaseStore extends VanGoStore {
     _notificar();
   }
 
+  /// Acompanha o status das solicitações de todas as vans do motorista. Cada
+  /// consulta é filtrada pelo `grupoId`, como exigem as regras; nenhuma lista
+  /// global é lida. O status decide quais avisos ainda são pendentes.
+  void _assinarSolicitacoesDasVans() {
+    for (final assinatura in _solicitacoesGrupoSubs) {
+      unawaited(assinatura.cancel());
+    }
+    _solicitacoesGrupoSubs.clear();
+    _statusSolicitacoes.clear();
+    _grupoSolicitacoes.clear();
+    if (_usuarioAtual?.perfil != PerfilUsuario.motorista) return;
+
+    for (final grupo in meusGrupos) {
+      _solicitacoesGrupoSubs.add(
+        _db
+            .collection('solicitacoes')
+            .where('grupoId', isEqualTo: grupo.id)
+            .snapshots()
+            .listen((snapshot) {
+              // Remove apenas o que vinha desta van: uma solicitação pode ser
+              // reaberta em outra van depois de uma recusa.
+              final anteriores = _statusSolicitacoes.entries
+                  .where((entrada) => _grupoSolicitacoes[entrada.key] == grupo.id)
+                  .map((entrada) => entrada.key)
+                  .toList();
+              for (final id in anteriores) {
+                _statusSolicitacoes.remove(id);
+                _grupoSolicitacoes.remove(id);
+              }
+              for (final doc in snapshot.docs) {
+                final status = doc.data()['status'] as String?;
+                if (status == null) continue;
+                _statusSolicitacoes[doc.id] = status;
+                _grupoSolicitacoes[doc.id] = grupo.id;
+              }
+              _reconstruirNotificacoesEntrada();
+            }, onError: (Object e) {
+              _aoFalharStream(e, 'solicitacoes:list(${grupo.id})');
+            }),
+      );
+    }
+  }
+
+  /// Avisos `solicitacao_entrada` persistidos, um listener por van. O filtro
+  /// por tipo e grupo mantém a consulta compatível com as regras de segurança.
+  void _assinarNotificacoesEntrada() {
+    for (final assinatura in _notificacoesEntradaSubs) {
+      unawaited(assinatura.cancel());
+    }
+    _notificacoesEntradaSubs.clear();
+    _notificacoesEntradaDocs.clear();
+    if (_usuarioAtual?.perfil != PerfilUsuario.motorista) return;
+
+    for (final grupo in meusGrupos) {
+      _notificacoesEntradaSubs.add(
+        _db
+            .collection('notificacoes')
+            .where('grupoId', isEqualTo: grupo.id)
+            .where('tipo', isEqualTo: 'solicitacao_entrada')
+            .snapshots()
+            .listen((snapshot) {
+              _notificacoesEntradaDocs.removeWhere(
+                (_, doc) => doc.data()['grupoId'] == grupo.id,
+              );
+              for (final doc in snapshot.docs) {
+                _notificacoesEntradaDocs[doc.id] = doc;
+              }
+              _reconstruirNotificacoesEntrada();
+            }, onError: (Object e) {
+              _aoFalharStream(e, 'notificacoes:list(${grupo.id})');
+            }),
+      );
+    }
+  }
+
+  /// Projeção somente leitura: nunca altera o evento persistido. Solicitações
+  /// já aprovadas/recusadas deixam de aparecer, mesmo após refresh ou relogin.
+  void _reconstruirNotificacoesEntrada() {
+    final projetados = <NotificacaoEntrada>[];
+    for (final doc in _notificacoesEntradaDocs.values) {
+      final data = doc.data();
+      if (data['tipo'] != 'solicitacao_entrada') continue;
+      final dados = data['dados'];
+      if (dados is! Map<String, dynamic>) continue;
+      final solicitacaoId = dados['solicitacaoId'] as String?;
+      final grupoId = data['grupoId'] as String?;
+      final criadoEm = (data['criadoEm'] as Timestamp?)?.toDate();
+      if (solicitacaoId == null || grupoId == null || criadoEm == null) {
+        continue;
+      }
+      final status = _statusSolicitacoes[solicitacaoId];
+      if (status != null && status != 'pendente') continue;
+      // Depois de uma recusa o aluno pode escolher outra van. O aviso antigo
+      // permanece no Firestore como histórico, mas não pode continuar aparecendo
+      // como pendente na van anterior.
+      if (_grupoSolicitacoes[solicitacaoId] != null &&
+          _grupoSolicitacoes[solicitacaoId] != grupoId) {
+        continue;
+      }
+      final grupo = _grupos.cast<GrupoVan?>().firstWhere(
+        (item) => item?.id == grupoId,
+        orElse: () => null,
+      );
+      projetados.add(
+        NotificacaoEntrada(
+          id: doc.id,
+          grupoId: grupoId,
+          grupoNome: grupo?.nome ?? 'selecionada',
+          solicitacaoId: solicitacaoId,
+          alunoNome: (dados['alunoNome'] as String?)?.trim().isNotEmpty == true
+              ? (dados['alunoNome'] as String).trim()
+              : 'Um aluno',
+          criadoEm: criadoEm,
+        ),
+      );
+    }
+    projetados.sort((a, b) => b.criadoEm.compareTo(a.criadoEm));
+    _notificacoesEntrada
+      ..clear()
+      ..addAll(projetados.take(20));
+    _notificar();
+  }
+
   void _assinarPadrao(String uid) {
     unawaited(_padraoSub?.cancel());
     _padraoSub = _db.collection('padroes').doc(uid).snapshots().listen((doc) {
@@ -819,6 +1005,14 @@ class FirebaseStore extends VanGoStore {
     _respostasSub = null;
     await _notificacoesRespostaSub?.cancel();
     _notificacoesRespostaSub = null;
+    for (final assinatura in _notificacoesEntradaSubs) {
+      await assinatura.cancel();
+    }
+    _notificacoesEntradaSubs.clear();
+    for (final assinatura in _solicitacoesGrupoSubs) {
+      await assinatura.cancel();
+    }
+    _solicitacoesGrupoSubs.clear();
     await _padraoSub?.cancel();
     _padraoSub = null;
     await _perfilSub?.cancel();
@@ -953,6 +1147,13 @@ class FirebaseStore extends VanGoStore {
         'status': status == StatusConta.ativo ? 'aprovado' : 'recusado',
       });
       await lote.commit();
+      // Atualiza a projeção local na mesma chamada: o aviso desaparece e o
+      // contador cai sem precisar recriar nem apagar o documento persistido.
+      _statusSolicitacoes[id] = status == StatusConta.ativo
+          ? 'aprovado'
+          : 'recusado';
+      _grupoSolicitacoes[id] = grupo;
+      _reconstruirNotificacoesEntrada();
       switch (status) {
         case StatusConta.ativo:
           return const OperacaoResultado.ok('Solicitação aprovada.');
@@ -1100,9 +1301,16 @@ class FirebaseStore extends VanGoStore {
         'Apenas o motorista pode cancelar a chamada.',
       );
     }
-    if (chamada == null || !chamada.aberta) {
+    if (chamada == null ||
+        (chamada.status != StatusChamada.aberta &&
+            chamada.status != StatusChamada.encerrada)) {
       return const OperacaoResultado.erro(
-        'Nenhuma chamada aberta para cancelar.',
+        'Nenhuma chamada disponível para cancelar.',
+      );
+    }
+    if (_viagemAtual?.status == StatusViagem.emAndamento) {
+      return const OperacaoResultado.erro(
+        'Encerre ou cancele a viagem em andamento antes de cancelar a chamada.',
       );
     }
     final agora = DateTime.now();
@@ -1286,6 +1494,11 @@ class FirebaseStore extends VanGoStore {
         'Nenhuma chamada criada para amanhã.',
       );
     }
+    if (chamada.cancelada) {
+      return const OperacaoResultado.erro(
+        'Não é possível iniciar viagem de uma chamada cancelada.',
+      );
+    }
     if (chamada.aberta) {
       return const OperacaoResultado.erro(
         'Encerre a chamada antes de iniciar a viagem.',
@@ -1293,6 +1506,30 @@ class FirebaseStore extends VanGoStore {
     }
     if (_viagemAtual?.status == StatusViagem.emAndamento) {
       return const OperacaoResultado.erro('Já existe uma viagem em andamento.');
+    }
+
+    final jaRegistrada = _historico.any(
+      (viagem) =>
+          viagem.chamadaId == chamada.id &&
+          viagem.sentido == sentido &&
+          (viagem.concluida || viagem.cancelada),
+    );
+    if (jaRegistrada) {
+      return OperacaoResultado.erro(
+        'A viagem de ${sentido.label.toLowerCase()} desta chamada já foi '
+        'registrada e não pode ser iniciada novamente.',
+      );
+    }
+    if (sentido == SentidoViagem.volta &&
+        !_historico.any(
+          (viagem) =>
+              viagem.chamadaId == chamada.id &&
+              viagem.sentido == SentidoViagem.ida &&
+              viagem.concluida,
+        )) {
+      return const OperacaoResultado.erro(
+        'Conclua a viagem de ida antes de iniciar a volta.',
+      );
     }
 
     final confirmacoes = <ConfirmacaoViagem>[];
@@ -1325,16 +1562,33 @@ class FirebaseStore extends VanGoStore {
         'motoristaId': _uid ?? '',
         'dataViagem': Timestamp.fromDate(chamada.dataServico),
         'sentido': sentido.name,
-        'status': StatusViagem.emAndamento.name,
+        'status': statusViagemParaFirestore(StatusViagem.emAndamento),
         'iniciadaEm': FieldValue.serverTimestamp(),
         'confirmacoes': confirmacoes.map(confirmacaoToMap).toList(),
       });
-      // Sinal lido pelas regras de `respostas`: nem uma chamada inconsistente
-      // (ainda aberta) aceita mudanças depois que a viagem começou.
-      lote.update(_db.collection('chamadas').doc(chamada.id), <String, dynamic>{
-        'viagemBloqueada': true,
+      // Trava por van: o documento de controle só pode estar em andamento para
+      // uma viagem por grupo. As regras negam um segundo início concorrente.
+      lote.set(_db.collection('controles_viagem').doc(chamada.grupoId), {
+        'grupoId': chamada.grupoId,
+        'motoristaId': _uid ?? '',
+        'viagemId': referencia.id,
+        'status': 'emAndamento',
+        'atualizadoEm': FieldValue.serverTimestamp(),
       });
       await lote.commit();
+
+      // Sinal lido pelas regras de `respostas`. Fica fora do batch porque o
+      // Firestore limita leituras por requisição: viagem + controle + chamada
+      // estourariam o limite quando o controle já existe (ida -> volta). A
+      // chamada já está encerrada, então as respostas já estão bloqueadas mesmo
+      // se este sinal não for gravado.
+      try {
+        await _db.collection('chamadas').doc(chamada.id).update(
+          <String, dynamic>{'viagemBloqueada': true},
+        );
+      } catch (_) {
+        // Não invalida a viagem iniciada: o bloqueio real é o status encerrada.
+      }
 
       return OperacaoResultado.ok(
         'Viagem de ${sentido.label.toLowerCase()} iniciada com '
@@ -1358,28 +1612,51 @@ class FirebaseStore extends VanGoStore {
     }
 
     try {
-      await _db.collection('viagens').doc(viagem.id).update(<String, dynamic>{
-        'status': StatusViagem.encerrada.name,
+      final agora = DateTime.now();
+      final lote = _db.batch();
+      lote.update(_db.collection('viagens').doc(viagem.id), <String, dynamic>{
+        'status': statusViagemParaFirestore(StatusViagem.encerrada),
         'encerradaEm': FieldValue.serverTimestamp(),
       });
+      lote.set(
+        _db.collection('controles_viagem').doc(viagem.grupoId),
+        <String, dynamic>{
+          'grupoId': viagem.grupoId,
+          'motoristaId': _uid ?? '',
+          'viagemId': viagem.id,
+          'status': 'finalizada',
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        },
+      );
+      await lote.commit();
 
+      final concluida = viagem.copyWith(
+        status: StatusViagem.encerrada,
+        encerradaEm: agora,
+      );
+      _viagemAtual = null;
+      if (!_historico.any((item) => item.id == concluida.id)) {
+        _historico.insert(0, concluida);
+      }
+      _historico.sort((a, b) {
+        final fimA =
+            a.encerradaEm ?? a.canceladaEm ?? a.iniciadaEm ?? a.dataViagem;
+        final fimB =
+            b.encerradaEm ?? b.canceladaEm ?? b.iniciadaEm ?? b.dataViagem;
+        return fimB.compareTo(fimA);
+      });
       if (viagem.sentido == SentidoViagem.volta) {
         _chamada = null;
-        _viagemAtual = null;
         _respostas.clear();
-        _notificar();
-        return const OperacaoResultado.ok(
-          'Viagem de volta encerrada. Uma nova chamada já pode ser aberta.',
-        );
       }
-
-      _viagemAtual = null;
       _notificar();
-      return const OperacaoResultado.ok(
-        'Viagem de ida encerrada. A volta pode ser iniciada.',
+      return OperacaoResultado.ok(
+        viagem.sentido == SentidoViagem.volta
+            ? 'Viagem de volta concluída com sucesso. Uma nova chamada já pode ser aberta.'
+            : 'Viagem de ida concluída com sucesso. A volta pode ser iniciada.',
       );
     } catch (error) {
-      return _erroOperacao('encerrar a viagem', error);
+      return _erroOperacao('concluir a viagem', error);
     }
   }
 
@@ -1391,24 +1668,32 @@ class FirebaseStore extends VanGoStore {
         'Apenas o motorista pode cancelar a viagem.',
       );
     }
-    if (viagem == null) {
-      return const OperacaoResultado.erro('Nenhuma viagem para cancelar.');
-    }
-    if (viagem.status == StatusViagem.cancelada) {
-      return const OperacaoResultado.erro('A viagem já foi cancelada.');
-    }
-    if (viagem.status == StatusViagem.encerrada) {
-      return const OperacaoResultado.erro('A viagem já foi encerrada.');
+    if (viagem == null || viagem.status != StatusViagem.emAndamento) {
+      return const OperacaoResultado.erro(
+        'Nenhuma viagem em andamento para cancelar.',
+      );
     }
 
     final agora = DateTime.now();
     final motivoLimpo = motivo?.trim();
     try {
-      await _db.collection('viagens').doc(viagem.id).update(<String, dynamic>{
-        'status': StatusViagem.cancelada.name,
+      final lote = _db.batch();
+      lote.update(_db.collection('viagens').doc(viagem.id), <String, dynamic>{
+        'status': statusViagemParaFirestore(StatusViagem.cancelada),
         'canceladaEm': Timestamp.fromDate(agora),
         'motivoCancelamento': motivoLimpo,
       });
+      lote.set(
+        _db.collection('controles_viagem').doc(viagem.grupoId),
+        <String, dynamic>{
+          'grupoId': viagem.grupoId,
+          'motoristaId': _uid ?? '',
+          'viagemId': viagem.id,
+          'status': 'cancelada',
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        },
+      );
+      await lote.commit();
 
       final cancelada = viagem.copyWith(
         status: StatusViagem.cancelada,
@@ -1417,7 +1702,16 @@ class FirebaseStore extends VanGoStore {
       );
 
       _viagemAtual = null;
-      _historico.insert(0, cancelada);
+      if (!_historico.any((item) => item.id == cancelada.id)) {
+        _historico.insert(0, cancelada);
+      }
+      _historico.sort((a, b) {
+        final fimA =
+            a.encerradaEm ?? a.canceladaEm ?? a.iniciadaEm ?? a.dataViagem;
+        final fimB =
+            b.encerradaEm ?? b.canceladaEm ?? b.iniciadaEm ?? b.dataViagem;
+        return fimB.compareTo(fimA);
+      });
 
       await _criarNotificacao(
         titulo: 'Viagem cancelada',
@@ -1774,6 +2068,8 @@ class FirebaseStore extends VanGoStore {
     required Turno turno,
     required String endereco,
     required String senha,
+    String? cep,
+    String? turnoPersonalizado,
   }) async {
     if (_auth.currentUser != null) {
       return const OperacaoResultado.erro(
@@ -1806,7 +2102,9 @@ class FirebaseStore extends VanGoStore {
         telefone: telefone.trim(),
         instituicao: instituicao.trim(),
         turno: turno,
+        turnoPersonalizado: turnoPersonalizado?.trim(),
         enderecoEmbarque: endereco.trim(),
+        cep: cep?.trim().isNotEmpty == true ? cep!.trim() : null,
         criadoEm: DateTime.now(),
       );
 
@@ -1975,6 +2273,8 @@ class FirebaseStore extends VanGoStore {
     required String endereco,
     required String senha,
     required Turno turno,
+    String? cep,
+    String? turnoPersonalizado,
     String? conviteToken,
   }) async {
     if (_auth.currentUser != null) {
@@ -2043,7 +2343,9 @@ class FirebaseStore extends VanGoStore {
         telefone: telefone.trim(),
         instituicao: instituicao,
         turno: turnoConvite,
+        turnoPersonalizado: turnoPersonalizado?.trim(),
         enderecoEmbarque: endereco.trim(),
+        cep: cep?.trim().isNotEmpty == true ? cep!.trim() : null,
         criadoEm: DateTime.now(),
       );
 
@@ -2178,6 +2480,43 @@ class FirebaseStore extends VanGoStore {
       _erro = _descreverErroCarregamento(error);
       debugPrint('[Firestore] falha ao contar alunos da van: $_erro');
       return 0;
+    }
+  }
+
+  @override
+  Future<int?> contarSolicitacoesGrupo(String grupoId) async {
+    final usuario = _usuarioAtual;
+    if (usuario == null || usuario.perfil != PerfilUsuario.motorista) {
+      return null;
+    }
+    final id = grupoId.trim();
+    if (id.isEmpty) return null;
+
+    // Verifica a posse antes de consultar: as regras só permitem ler
+    // solicitações de grupos pertencentes ao motorista autenticado.
+    final grupo = await buscarGrupoPorId(id);
+    if (grupo == null || grupo.motoristaId != usuario.id) return null;
+
+    _erro = null;
+    try {
+      final snapshot = await _db
+          .collection('solicitacoes')
+          .where('grupoId', isEqualTo: id)
+          .get();
+      for (final doc in snapshot.docs) {
+        final status = doc.data()['status'] as String?;
+        if (status == null) continue;
+        _statusSolicitacoes[doc.id] = status;
+        _grupoSolicitacoes[doc.id] = id;
+      }
+      _reconstruirNotificacoesEntrada();
+      return snapshot.docs
+          .where((doc) => doc.data()['status'] == 'pendente')
+          .length;
+    } catch (error) {
+      _erro = _descreverErroCarregamento(error);
+      debugPrint('[Firestore] falha ao contar solicitações da van: $_erro');
+      return null;
     }
   }
 
@@ -2397,35 +2736,70 @@ class FirebaseStore extends VanGoStore {
       );
     }
 
-    try {
-      final grupoRef = _db.collection('grupos').doc(grupoId);
-      final grupoDoc = await grupoRef.get();
-      if (!grupoDoc.exists) {
-        return const OperacaoResultado.erro('Van não encontrada.');
-      }
+    final idGrupo = grupoId.trim();
+    if (idGrupo.isEmpty) {
+      return const OperacaoResultado.erro('Van não encontrada.');
+    }
 
-      // ID determinístico: cada aluno mantém no máximo uma solicitação ativa.
-      // Depois de uma recusa, o mesmo documento é reaberto para nova tentativa.
-      // Solicitação e vínculo do perfil são gravados no mesmo lote atômico:
-      // nunca sobra uma pendente sem o aluno realmente vinculado.
-      final lote = _db.batch();
-      lote.set(
-        _db.collection('solicitacoes').doc(usuario.id),
-        <String, dynamic>{
-          'grupoId': grupoId,
+    try {
+      final grupoRef = _db.collection('grupos').doc(idGrupo);
+      final solicitacaoRef = _db.collection('solicitacoes').doc(usuario.id);
+      final perfilRef = _db.collection('usuarios').doc(usuario.id);
+      // ID determinístico: a mesma solicitação (aluno + van) nunca gera um
+      // segundo evento. O documento é reaproveitado se o aluno for recusado.
+      final notificacaoRef = _db.collection('notificacoes').doc(
+        'solicitacao_entrada_${usuario.id}_$idGrupo',
+      );
+
+      // Solicitação, vínculo do perfil e aviso entram no mesmo commit. A leitura
+      // prévia do aviso torna a operação idempotente mesmo em cliques repetidos.
+      final enviada = await _db.runTransaction((transaction) async {
+        final grupoDoc = await transaction.get(grupoRef);
+        if (!grupoDoc.exists) return false;
+        final solicitacaoDoc = await transaction.get(solicitacaoRef);
+        if (solicitacaoDoc.exists &&
+            solicitacaoDoc.data()?['status'] == 'pendente') {
+          return false;
+        }
+        final perfilDoc = await transaction.get(perfilRef);
+        if (!perfilDoc.exists) return false;
+        final notificacaoDoc = await transaction.get(notificacaoRef);
+
+        transaction.set(solicitacaoRef, <String, dynamic>{
+          'grupoId': idGrupo,
           'alunoId': usuario.id,
           'status': 'pendente',
           'criadoEm': FieldValue.serverTimestamp(),
-        },
-      );
-      lote.set(_db.collection('usuarios').doc(usuario.id), <String, dynamic>{
-        'grupoId': grupoId,
-        'status': StatusConta.pendente.name,
-        'ativo': false,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      await lote.commit();
+        });
+        transaction.set(perfilRef, <String, dynamic>{
+          'grupoId': idGrupo,
+          'status': StatusConta.pendente.name,
+          'ativo': false,
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (!notificacaoDoc.exists) {
+          transaction.set(notificacaoRef, <String, dynamic>{
+            'grupoId': idGrupo,
+            'titulo': 'Solicitação de entrada',
+            'corpo': 'Um aluno solicitou entrada nesta van.',
+            'alunoIds': <String>[],
+            'tipo': 'solicitacao_entrada',
+            'dados': <String, dynamic>{
+              'solicitacaoId': usuario.id,
+              'destinatarioId': grupoDoc.get('motoristaId'),
+              'alunoNome': usuario.nome,
+            },
+            'criadoEm': FieldValue.serverTimestamp(),
+          });
+        }
+        return true;
+      });
 
+      if (!enviada) {
+        return const OperacaoResultado.erro(
+          'Você já tem uma solicitação pendente. Aguarde a aprovação do motorista.',
+        );
+      }
       return const OperacaoResultado.ok(
         'Solicitação enviada! Aguarde a aprovação do motorista.',
       );
@@ -2476,7 +2850,12 @@ class FirebaseStore extends VanGoStore {
           .get();
       final alunos = <Usuario>[];
       for (final doc in snapshot.docs) {
-        if (doc.data()['status'] != 'pendente') continue;
+        final status = doc.data()['status'] as String?;
+        if (status != null) {
+          _statusSolicitacoes[doc.id] = status;
+          _grupoSolicitacoes[doc.id] = grupoId;
+        }
+        if (status != 'pendente') continue;
         final alunoId = doc.data()['alunoId'] as String?;
         if (alunoId == null) continue;
         final perfilDoc = await _db.collection('usuarios').doc(alunoId).get();
@@ -2585,8 +2964,10 @@ class FirebaseStore extends VanGoStore {
     required String telefone,
     String? instituicao,
     String? endereco,
+    String? cep,
     String? referencia,
     Turno? turno,
+    String? turnoPersonalizado,
     String? fotoUrl,
   }) async {
     final usuario = _usuarioAtual;
@@ -2611,8 +2992,25 @@ class FirebaseStore extends VanGoStore {
     if (usuario.perfil == PerfilUsuario.aluno) {
       if (instituicao != null) dados['instituicao'] = instituicao.trim();
       if (endereco != null) dados['enderecoEmbarque'] = endereco.trim();
+      // String vazia limpa o CEP no Firestore; null removeria o campo.
+      if (cep != null) dados['cep'] = cep.trim().isEmpty ? null : cep.trim();
       if (referencia != null) dados['referenciaEndereco'] = referencia.trim();
-      if (turno != null) dados['turno'] = turno.name;
+      if (turno != null) {
+        dados['turno'] = turno.name;
+        // Só escreve o campo quando a descrição existe ou precisa ser limpa:
+        // contas antigas com turno conhecido não ganham um campo novo.
+        if (usuario.turno == Turno.outro || turno == Turno.outro) {
+          dados['turnoPersonalizado'] =
+              turno == Turno.outro &&
+                  (turnoPersonalizado?.trim().isNotEmpty ?? false)
+              ? turnoPersonalizado!.trim()
+              : null;
+        }
+      } else if (turnoPersonalizado != null && usuario.turno == Turno.outro) {
+        dados['turnoPersonalizado'] = turnoPersonalizado.trim().isEmpty
+            ? null
+            : turnoPersonalizado.trim();
+      }
       if (fotoUrl != null) dados['fotoUrl'] = fotoUrl;
     }
 
@@ -2627,8 +3025,12 @@ class FirebaseStore extends VanGoStore {
         telefone: telefoneLimpo,
         instituicao: instituicao?.trim(),
         enderecoEmbarque: endereco?.trim(),
+        cep: cep?.trim(),
+        limparCep: cep != null && cep.trim().isEmpty,
         referenciaEndereco: referencia?.trim(),
         turno: turno,
+        turnoPersonalizado: turnoPersonalizado?.trim(),
+        limparTurnoPersonalizado: turno != null && turno != Turno.outro,
         fotoUrl: fotoUrl,
       );
       _notificar();
@@ -2693,36 +3095,117 @@ class FirebaseStore extends VanGoStore {
     required String extensao,
   }) async {
     final usuario = _usuarioAtual;
-    if (usuario == null) {
+    // O destino é sempre o UID autenticado, nunca apenas o id do documento:
+    // isso impede gravar no caminho de outro usuário em caso de sessão trocada.
+    final uid = _auth.currentUser?.uid;
+    if (usuario == null || uid == null || uid != usuario.id) {
       return const OperacaoResultado.erro('Sessão expirada.');
     }
 
     final ext = extensao.toLowerCase().replaceAll('.', '');
-    final contentType = ext == 'png' ? 'image/png' : 'image/jpeg';
+    if (!ProfilePhoto.formatosPermitidos.contains(ext) ||
+        bytes.isEmpty ||
+        bytes.length > ProfilePhoto.maxUploadBytes) {
+      return const OperacaoResultado.erro(
+        'Imagem inválida. Use JPG, PNG ou WebP de até 5 MB.',
+      );
+    }
+    final contentType = ext == 'png'
+        ? 'image/png'
+        : ext == 'webp'
+        ? 'image/webp'
+        : 'image/jpeg';
 
     try {
-      final referencia = _storage.ref('usuarios/${usuario.id}/foto.$ext');
+      // O caminho é sempre derivado do UID autenticado: nunca aceitamos um
+      // caminho externo. O prefixo impede gravar ou apagar arquivos de outrem.
+      final caminho = 'usuarios/$uid/foto.$ext';
+      final anterior = _caminhoFoto(usuario.fotoUrl, uid);
+      final referencia = _storage.ref(caminho);
       await referencia.putData(
         bytes,
         SettableMetadata(contentType: contentType),
       );
       final url = await referencia.getDownloadURL();
 
-      await _db.collection('usuarios').doc(usuario.id).set(<String, dynamic>{
+      // Só troca a referência no perfil depois que o upload foi confirmado.
+      await _db.collection('usuarios').doc(uid).set(<String, dynamic>{
         'fotoUrl': url,
         'atualizadoEm': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
       _usuarioAtual = usuario.copyWith(fotoUrl: url);
       _notificar();
+
+      // Limpeza best-effort: se o arquivo antigo estiver em outra extensão,
+      // removemos depois de trocar a referência. Uma falha aqui não desfaz a
+      // foto já salva nem impede o uso do app.
+      if (anterior != null && anterior != caminho) {
+        await _removerArquivoStorage(anterior);
+      }
       return const OperacaoResultado.ok('Foto atualizada.');
     } on FirebaseException catch (error) {
+      // Não logamos a URL (ela contém token de download).
       debugPrint('[Storage] ${error.code}: ${error.message}');
       return const OperacaoResultado.erro(
         'Não foi possível enviar a foto. Tente novamente.',
       );
     } catch (error) {
       return _erroOperacao('enviar a foto', error);
+    }
+  }
+
+  @override
+  Future<OperacaoResultado> removerFotoPerfil() async {
+    final usuario = _usuarioAtual;
+    final uid = _auth.currentUser?.uid;
+    if (usuario == null || uid == null || uid != usuario.id) {
+      return const OperacaoResultado.erro('Sessão expirada.');
+    }
+    final anterior = _caminhoFoto(usuario.fotoUrl, uid);
+    try {
+      await _db.collection('usuarios').doc(uid).set(<String, dynamic>{
+        'fotoUrl': null,
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      _usuarioAtual = usuario.copyWith(fotoUrl: null, limparFotoUrl: true);
+      _notificar();
+      if (anterior != null) await _removerArquivoStorage(anterior);
+      return const OperacaoResultado.ok('Foto removida.');
+    } on FirebaseException catch (error) {
+      debugPrint('[Firestore] ${error.code}: ${error.message}');
+      return const OperacaoResultado.erro(
+        'Não foi possível remover a foto. Tente novamente.',
+      );
+    } catch (error) {
+      return _erroOperacao('remover a foto', error);
+    }
+  }
+
+  /// Extrai o caminho `usuarios/{uid}/foto.*` de uma URL de download.
+  ///
+  /// Retorna null para URLs de outro usuário, de outro bucket ou malformadas:
+  /// assim uma referência antiga/inválida nunca apaga arquivo alheio.
+  String? _caminhoFoto(String? url, String uid) {
+    if (url == null || url.isEmpty) return null;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+    final indice = uri.path.indexOf('/o/');
+    if (indice < 0) return null;
+    final caminho = Uri.decodeComponent(uri.path.substring(indice + 3));
+    if (!caminho.startsWith('usuarios/$uid/')) return null;
+    final nome = caminho.split('/').last;
+    if (!RegExp(r'^foto\.(jpg|jpeg|png|webp)$').hasMatch(nome)) return null;
+    return caminho;
+  }
+
+  Future<void> _removerArquivoStorage(String caminho) async {
+    try {
+      await _storage.ref(caminho).delete();
+    } on FirebaseException catch (error) {
+      debugPrint('[Storage] limpeza ignorada (${error.code}).');
+    } catch (error) {
+      debugPrint('[Storage] limpeza ignorada: $error');
     }
   }
 

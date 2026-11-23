@@ -125,7 +125,9 @@ Usuario usuarioFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     turno: data['turno'] == null
         ? null
         : enumDe(Turno.values, data['turno'], Turno.matutino),
+    turnoPersonalizado: data['turnoPersonalizado'] as String?,
     enderecoEmbarque: data['enderecoEmbarque'] as String?,
+    cep: data['cep'] as String?,
     referenciaEndereco: data['referenciaEndereco'] as String?,
     grupoId: data['grupoId'] as String?,
     motivoRecusa: (data['motivoRecusa'] as String?)?.trim().isNotEmpty == true
@@ -154,6 +156,16 @@ Map<String, dynamic> usuarioToMap(Usuario usuario, {String? grupoId}) {
   };
   // Aluno recém-cadastrado ainda não pertence a uma van. O campo só é gravado
   // quando existe um vínculo real, evitando que o cliente escolha um grupo.
+  // Campos novos são opcionais: contas antigas não são regravadas com valores
+  // vazios e nenhum campo administrativo é acrescentado aqui.
+  final cep = usuario.cep?.trim();
+  if (cep != null && cep.isNotEmpty) mapa['cep'] = cep;
+  final turnoPersonalizado = usuario.turnoPersonalizado?.trim();
+  if (usuario.turno == Turno.outro &&
+      turnoPersonalizado != null &&
+      turnoPersonalizado.isNotEmpty) {
+    mapa['turnoPersonalizado'] = turnoPersonalizado;
+  }
   if (grupoId != null && grupoId.trim().isNotEmpty) {
     mapa['grupoId'] = grupoId.trim();
   }
@@ -227,6 +239,18 @@ RespostaPresenca respostaFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
 
 // -------------------------------------------------------------------- viagem
 
+/// O Firestore usa `finalizada` para o estado que o modelo chama de
+/// `encerrada`. Registros antigos com `encerrada` continuam sendo lidos.
+StatusViagem statusViagemDe(Object? valor) {
+  if (valor is String && valor.trim().toLowerCase() == 'finalizada') {
+    return StatusViagem.encerrada;
+  }
+  return enumDe(StatusViagem.values, valor, StatusViagem.encerrada);
+}
+
+String statusViagemParaFirestore(StatusViagem status) =>
+    status == StatusViagem.encerrada ? 'finalizada' : status.name;
+
 Viagem viagemFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? const <String, dynamic>{};
   final confirmacoes = <ConfirmacaoViagem>[];
@@ -260,7 +284,7 @@ Viagem viagemFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     grupoId: (data['grupoId'] as String?) ?? kGrupoIdPadrao,
     dataViagem: _data(data['dataViagem']) ?? DateTime.now(),
     sentido: enumDe(SentidoViagem.values, data['sentido'], SentidoViagem.ida),
-    status: enumDe(StatusViagem.values, data['status'], StatusViagem.encerrada),
+    status: statusViagemDe(data['status']),
     iniciadaEm: _data(data['iniciadaEm']),
     encerradaEm: _data(data['encerradaEm']),
     canceladaEm: _data(data['canceladaEm']),

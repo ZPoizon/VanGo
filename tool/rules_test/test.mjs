@@ -232,6 +232,57 @@ function avisoResposta({
   };
 }
 
+const idAvisoEntrada = (uid, grupoId) =>
+  `solicitacao_entrada_${uid}_${grupoId}`;
+
+function avisoEntrada({
+  uid = ALUNO_SEM_GRUPO,
+  grupoId = GRUPO,
+  nome = 'Aluno Sem Grupo',
+  destinatarioId = MOTORISTA,
+  dadosExtra = {},
+} = {}) {
+  return {
+    grupoId,
+    titulo: 'Solicitação de entrada',
+    corpo: 'Um aluno solicitou entrada nesta van.',
+    alunoIds: [],
+    tipo: 'solicitacao_entrada',
+    dados: {
+      solicitacaoId: uid,
+      destinatarioId,
+      alunoNome: nome,
+      ...dadosExtra,
+    },
+    criadoEm: serverTimestamp(),
+  };
+}
+
+async function solicitarComAviso(
+  db,
+  { uid = ALUNO_SEM_GRUPO, grupoId = GRUPO, aviso } = {},
+) {
+  const efetivo = aviso ?? avisoEntrada({ uid, grupoId });
+  await runTransaction(db, async (transaction) => {
+    transaction.set(doc(db, 'solicitacoes', uid), {
+      grupoId,
+      alunoId: uid,
+      status: 'pendente',
+      criadoEm: serverTimestamp(),
+    });
+    transaction.update(doc(db, 'usuarios', uid), {
+      grupoId,
+      status: 'pendente',
+      ativo: false,
+      atualizadoEm: serverTimestamp(),
+    });
+    transaction.set(
+      doc(db, 'notificacoes', idAvisoEntrada(uid, grupoId)),
+      efetivo,
+    );
+  });
+}
+
 async function semearRespostaAlteravel() {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), 'respostas', `chamada1_${ALUNO}`), {
@@ -297,6 +348,11 @@ function perfilNovo({
   status,
   ativo,
   grupoId,
+  instituicao = perfil === 'aluno' ? 'Escola Teste' : null,
+  turno = perfil === 'aluno' ? 'matutino' : null,
+  turnoPersonalizado,
+  enderecoEmbarque = perfil === 'aluno' ? 'Rua Teste, 1' : null,
+  cep,
 }) {
   const dados = {
     nome,
@@ -306,12 +362,14 @@ function perfilNovo({
     ativo,
     telefone: '(15) 99999-0000',
     fotoUrl: null,
-    instituicao: perfil === 'aluno' ? 'Escola Teste' : null,
-    turno: perfil === 'aluno' ? 'matutino' : null,
-    enderecoEmbarque: perfil === 'aluno' ? 'Rua Teste, 1' : null,
+    instituicao,
+    turno,
+    enderecoEmbarque,
     criadoEm: Timestamp.now(),
     atualizadoEm: Timestamp.now(),
   };
+  if (turnoPersonalizado !== undefined) dados.turnoPersonalizado = turnoPersonalizado;
+  if (cep !== undefined) dados.cep = cep;
   if (grupoId !== undefined) dados.grupoId = grupoId;
   return dados;
 }
@@ -342,6 +400,66 @@ await permitido('aluno cria somente o próprio perfil, sem grupoId', () =>
       ativo: false,
     }),
   ));
+
+await permitido('cadastro aceita instituição livre, CEP formatado e turno vespertino', () =>
+  setDoc(
+    doc(ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO), 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      instituicao: 'Instituição Personalizada',
+      turno: 'vespertino',
+      cep: '18000-000',
+    }),
+  ));
+
+await permitido('cadastro aceita turno outro com descrição personalizada', () =>
+  setDoc(
+    doc(ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO), 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      instituicao: 'UNIP',
+      turno: 'outro',
+      turnoPersonalizado: 'Integrado',
+      cep: '18000-000',
+    }),
+  ));
+
+await permitido('aluno atualiza instituição, CEP e turno para vespertino', async () => {
+  const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
+  await setDoc(
+    doc(ctx, 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+    }),
+  );
+  return updateDoc(doc(ctx, 'usuarios', NOVO_ALUNO), {
+    instituicao: 'Outra Instituição Qualquer',
+    cep: '18000-000',
+    turno: 'vespertino',
+    atualizadoEm: Timestamp.now(),
+  });
+});
+
+await permitido('conta antiga sem CEP continua editável sem ganhar o campo', async () => {
+  const ctx = testEnv.authenticatedContext(ALUNO_SEM_GRUPO).firestore();
+  await updateDoc(doc(ctx, 'usuarios', ALUNO_SEM_GRUPO), {
+    telefone: '(15) 98888-7777',
+    atualizadoEm: Timestamp.now(),
+  });
+  const atualizado = await getDoc(doc(ctx, 'usuarios', ALUNO_SEM_GRUPO));
+  if (atualizado.data().cep !== undefined) {
+    throw new Error('CEP não deveria ser acrescentado a uma conta antiga');
+  }
+});
 
 await permitido('novo aluno lê o próprio perfil após o cadastro', async () => {
   const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
@@ -639,7 +757,7 @@ await permitido('motorista lê e cria viagens do grupo', async () => {
     grupoId: GRUPO,
     motoristaId: MOTORISTA,
     sentido: 'ida',
-    status: 'emAndamento',
+    status: 'em_andamento',
   });
   return getDocs(query(collection(ctxMotorista(), 'viagens'), where('grupoId', '==', GRUPO)));
 });
@@ -716,6 +834,26 @@ await proibido('motorista não grava campos de aluno no próprio perfil', () =>
     telefone: '(15) 91111-2222',
     instituicao: 'Escola Teste',
     enderecoEmbarque: 'Rua A, 1',
+  }));
+
+await permitido('motorista grava URL de download válida em fotoUrl', () =>
+  updateDoc(doc(ctxMotorista(), 'usuarios', MOTORISTA), {
+    fotoUrl: 'https://firebasestorage.googleapis.com/v0/b/demo-vango.appspot.com/o/usuarios%2Fmotorista-uid%2Ffoto.jpg?alt=media&token=abc123',
+  }));
+
+await permitido('URL http do emulador de Storage é aceita em fotoUrl', () =>
+  updateDoc(doc(ctxMotorista(), 'usuarios', MOTORISTA), {
+    fotoUrl: 'http://127.0.0.1:9199/v0/b/demo-vango.appspot.com/o/usuarios%2Fmotorista-uid%2Ffoto.jpg?alt=media&token=abc123',
+  }));
+
+await proibido('perfil não aceita imagem base64 em fotoUrl', () =>
+  updateDoc(doc(ctxMotorista(), 'usuarios', MOTORISTA), {
+    fotoUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+  }));
+
+await proibido('fotoUrl não aceita conteúdo não textual', () =>
+  updateDoc(doc(ctxMotorista(), 'usuarios', MOTORISTA), {
+    fotoUrl: { base64: '/9j/4AAQSkZJRg==' },
   }));
 
 await proibido('motorista não edita perfil de outro motorista', () =>
@@ -1296,6 +1434,96 @@ await proibido('cadastro não aceita turno inválido', () =>
     },
   ));
 
+await proibido('cadastro não aceita CEP sem a máscara 00000-000', () =>
+  setDoc(
+    doc(ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO), 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      cep: '18000000',
+    }),
+  ));
+
+await proibido('cadastro não aceita CEP com menos de 8 dígitos', () =>
+  setDoc(
+    doc(ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO), 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      cep: '1234',
+    }),
+  ));
+
+await proibido('cadastro não aceita turno outro sem descrição', () =>
+  setDoc(
+    doc(ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO), 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      turno: 'outro',
+    }),
+  ));
+
+await proibido('aluno não salva CEP inválido na edição do perfil', async () => {
+  const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
+  await setDoc(
+    doc(ctx, 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+      cep: '18000-000',
+    }),
+  );
+  return updateDoc(doc(ctx, 'usuarios', NOVO_ALUNO), {
+    cep: '1234',
+    atualizadoEm: Timestamp.now(),
+  });
+});
+
+await proibido('aluno não muda para turno outro sem descrição', async () => {
+  const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
+  await setDoc(
+    doc(ctx, 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+    }),
+  );
+  return updateDoc(doc(ctx, 'usuarios', NOVO_ALUNO), {
+    turno: 'outro',
+    atualizadoEm: Timestamp.now(),
+  });
+});
+
+await proibido('aluno não usa CEP válido para alterar status/ativo', async () => {
+  const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
+  await setDoc(
+    doc(ctx, 'usuarios', NOVO_ALUNO),
+    perfilNovo({
+      email: EMAIL_NOVO_ALUNO,
+      perfil: 'aluno',
+      status: 'pendente',
+      ativo: false,
+    }),
+  );
+  return updateDoc(doc(ctx, 'usuarios', NOVO_ALUNO), {
+    cep: '18000-000',
+    status: 'ativo',
+    ativo: true,
+    atualizadoEm: Timestamp.now(),
+  });
+});
+
 await proibido('perfil não pode ser alterado para outro perfil após o cadastro', async () => {
   const ctx = ctxCadastro(NOVO_ALUNO, EMAIL_NOVO_ALUNO);
   await setDoc(
@@ -1806,6 +2034,355 @@ await proibido('aluno não altera resposta quando chamada encerrada (regressão)
   });
   return updateDoc(doc(ctxAluno(), 'respostas', `chamadaFechada_${ALUNO}`), {
     volta: 'vai', versao: 1,
+  });
+});
+
+// Fase 4: conclusão/cancelamento operacional e trava por van
+await permitido('motorista inicia viagem com status emAndamento serializado pelo app', async () => {
+  const grupoCamel = 'grupo_status_camel';
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'grupos', grupoCamel), {
+      nome: 'Van status camel', motoristaId: MOTORISTA, codigo: '777888',
+    });
+  });
+  const db = ctxMotorista();
+  const lote = writeBatch(db);
+  lote.set(doc(db, 'viagens', 'vStatusCamel'), {
+    grupoId: grupoCamel, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+    sentido: 'ida', status: 'emAndamento', confirmacoes: [],
+  });
+  lote.set(doc(db, 'controles_viagem', grupoCamel), {
+    grupoId: grupoCamel, motoristaId: MOTORISTA, viagemId: 'vStatusCamel',
+    status: 'emAndamento', atualizadoEm: serverTimestamp(),
+  });
+  return lote.commit();
+});
+
+await permitido('motorista conclui viagem gravando status finalizada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'viagens', 'vConcluir'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+      sentido: 'ida', status: 'em_andamento', confirmacoes: [],
+    });
+    await setDoc(doc(ctx.firestore(), 'controles_viagem', GRUPO), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vConcluir',
+      status: 'emAndamento', atualizadoEm: Timestamp.now(),
+    });
+  });
+  const db = ctxMotorista();
+  const lote = writeBatch(db);
+  lote.update(doc(db, 'viagens', 'vConcluir'), {
+    status: 'finalizada', encerradaEm: Timestamp.now(),
+  });
+  lote.set(doc(db, 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vConcluir',
+    status: 'finalizada', atualizadoEm: serverTimestamp(),
+  });
+  return lote.commit();
+});
+
+await permitido('motorista cancela viagem gravando data e motivo', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'viagens', 'vCancelar'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+      sentido: 'ida', status: 'em_andamento', confirmacoes: [],
+    });
+    await setDoc(doc(ctx.firestore(), 'controles_viagem', GRUPO), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vCancelar',
+      status: 'emAndamento', atualizadoEm: Timestamp.now(),
+    });
+  });
+  const db = ctxMotorista();
+  const lote = writeBatch(db);
+  lote.update(doc(db, 'viagens', 'vCancelar'), {
+    status: 'cancelada', canceladaEm: Timestamp.now(), motivoCancelamento: 'Chuva',
+  });
+  lote.set(doc(db, 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vCancelar',
+    status: 'cancelada', atualizadoEm: serverTimestamp(),
+  });
+  return lote.commit();
+});
+
+await permitido('motorista inicia volta após ida finalizada na mesma van', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'controles_viagem', GRUPO), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vIda',
+      status: 'finalizada', atualizadoEm: Timestamp.now(),
+    });
+  });
+  const db = ctxMotorista();
+  const lote = writeBatch(db);
+  lote.set(doc(db, 'viagens', 'vVolta'), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+    sentido: 'volta', status: 'em_andamento', confirmacoes: [],
+  });
+  lote.set(doc(db, 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vVolta',
+    status: 'emAndamento', atualizadoEm: serverTimestamp(),
+  });
+  return lote.commit();
+});
+
+await permitido('motorista cancela chamada encerrada sem apagar resposta', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'chamadas', 'chamadaCancelar'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, status: 'encerrada',
+      viagemBloqueada: false, dataServico: Timestamp.now(),
+    });
+    await setDoc(doc(ctx.firestore(), 'respostas', `chamadaCancelar_${ALUNO}`), {
+      chamadaId: 'chamadaCancelar', alunoId: ALUNO, grupoId: GRUPO,
+      ida: 'vai', volta: 'vai', versao: 0, respondidoEm: Timestamp.now(),
+    });
+  });
+  await updateDoc(doc(ctxMotorista(), 'chamadas', 'chamadaCancelar'), {
+    status: 'cancelada', canceladaEm: Timestamp.now(), motivoCancelamento: 'Imprevisto',
+  });
+  const resposta = await getDoc(doc(ctxMotorista(), 'respostas', `chamadaCancelar_${ALUNO}`));
+  if (!resposta.exists() || resposta.data().ida !== 'vai') {
+    throw new Error('A resposta antiga não foi preservada');
+  }
+});
+
+await proibido('motorista não cria viagem já finalizada', () =>
+  setDoc(doc(ctxMotorista(), 'viagens', 'vFinal'), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+    sentido: 'ida', status: 'finalizada', confirmacoes: [],
+  }));
+
+await proibido('motorista não inicia segunda viagem da mesma van', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'controles_viagem', GRUPO), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vAtiva',
+      status: 'emAndamento', atualizadoEm: Timestamp.now(),
+    });
+  });
+  const db = ctxMotorista();
+  const lote = writeBatch(db);
+  lote.set(doc(db, 'viagens', 'vSegunda'), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+    sentido: 'ida', status: 'em_andamento', confirmacoes: [],
+  });
+  lote.set(doc(db, 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vSegunda',
+    status: 'emAndamento', atualizadoEm: serverTimestamp(),
+  });
+  return lote.commit();
+});
+
+await proibido('motorista não troca a viagem do controle ao concluir', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'controles_viagem', GRUPO), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vAtiva',
+      status: 'emAndamento', atualizadoEm: Timestamp.now(),
+    });
+  });
+  return updateDoc(doc(ctxMotorista(), 'controles_viagem', GRUPO), {
+    viagemId: 'vOutra', status: 'finalizada', atualizadoEm: serverTimestamp(),
+  });
+});
+
+await proibido('motorista não reabre viagem cancelada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'viagens', 'vCanceladaReaberta'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, chamadaId: 'chamada1',
+      sentido: 'ida', status: 'cancelada', confirmacoes: [],
+    });
+  });
+  return updateDoc(doc(ctxMotorista(), 'viagens', 'vCanceladaReaberta'), {
+    status: 'em_andamento',
+  });
+});
+
+await proibido('motorista não reabre chamada cancelada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'chamadas', 'chamadaCanceladaReaberta'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, status: 'cancelada',
+      viagemBloqueada: false, dataServico: Timestamp.now(),
+    });
+  });
+  return updateDoc(doc(ctxMotorista(), 'chamadas', 'chamadaCanceladaReaberta'), {
+    status: 'aberta',
+  });
+});
+
+await proibido('aluno não cancela chamada do grupo', () =>
+  updateDoc(doc(ctxAluno(), 'chamadas', 'chamada1'), {
+    status: 'cancelada', canceladaEm: Timestamp.now(),
+  }));
+
+await proibido('motorista de outra van não cancela chamada', () =>
+  updateDoc(doc(ctxMotoristaB(), 'chamadas', 'chamada1'), {
+    status: 'cancelada', canceladaEm: Timestamp.now(),
+  }));
+
+await proibido('aluno não altera resposta após chamada cancelada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'chamadas', 'chamadaCanceladaResp'), {
+      grupoId: GRUPO, motoristaId: MOTORISTA, status: 'cancelada',
+      viagemBloqueada: false, dataServico: Timestamp.now(),
+    });
+    await setDoc(doc(ctx.firestore(), 'respostas', `chamadaCanceladaResp_${ALUNO}`), {
+      chamadaId: 'chamadaCanceladaResp', alunoId: ALUNO, grupoId: GRUPO,
+      ida: 'vai', volta: 'vai', versao: 0, respondidoEm: Timestamp.now(),
+    });
+  });
+  return updateDoc(doc(ctxAluno(), 'respostas', `chamadaCanceladaResp_${ALUNO}`), {
+    volta: 'naoVai', versao: 1,
+  });
+});
+
+await proibido('aluno não escreve controle de viagem', () =>
+  setDoc(doc(ctxAluno(), 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vInvasao',
+    status: 'emAndamento', atualizadoEm: serverTimestamp(),
+  }));
+
+await proibido('motorista de outra van não escreve controle de viagem', () =>
+  setDoc(doc(ctxMotoristaB(), 'controles_viagem', GRUPO), {
+    grupoId: GRUPO, motoristaId: MOTORISTA, viagemId: 'vInvasao',
+    status: 'emAndamento', atualizadoEm: serverTimestamp(),
+  }));
+
+// Fase 5B: aviso persistente de solicitação de entrada
+console.log('\n=== FASE 5B: notificação de solicitação de entrada ===');
+
+await permitido('aluno cria solicitação, vínculo e aviso na mesma transação', () =>
+  solicitarComAviso(ctxAlunoSemGrupo()));
+
+await permitido('aluno lê o próprio aviso para idempotência', async () => {
+  await solicitarComAviso(ctxAlunoSemGrupo());
+  return getDoc(
+    doc(ctxAlunoSemGrupo(), 'notificacoes', idAvisoEntrada(ALUNO_SEM_GRUPO, GRUPO)),
+  );
+});
+
+await permitido('aluno lê solicitação e aviso inexistentes na transação', async () => {
+  const db = ctxAlunoSemGrupo();
+  await runTransaction(db, async (transaction) => {
+    await transaction.get(doc(db, 'solicitacoes', ALUNO_SEM_GRUPO));
+    await transaction.get(doc(db, 'notificacoes', idAvisoEntrada(ALUNO_SEM_GRUPO, GRUPO)));
+  });
+});
+
+await permitido('aluno recusado reabre solicitação na mesma van com o perfil', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'solicitacoes', ALUNO_RECUSADO), {
+      grupoId: GRUPO,
+      alunoId: ALUNO_RECUSADO,
+      status: 'recusado',
+      criadoEm: Timestamp.now(),
+    });
+  });
+  const db = ctxAlunoRecusado();
+  await runTransaction(db, async (transaction) => {
+    await transaction.get(doc(db, 'solicitacoes', ALUNO_RECUSADO));
+    await transaction.get(doc(db, 'usuarios', ALUNO_RECUSADO));
+    await transaction.get(doc(db, 'notificacoes', idAvisoEntrada(ALUNO_RECUSADO, GRUPO)));
+    transaction.set(doc(db, 'solicitacoes', ALUNO_RECUSADO), {
+      grupoId: GRUPO,
+      alunoId: ALUNO_RECUSADO,
+      status: 'pendente',
+      criadoEm: serverTimestamp(),
+    });
+    transaction.set(
+      doc(db, 'usuarios', ALUNO_RECUSADO),
+      { grupoId: GRUPO, status: 'pendente', ativo: false, atualizadoEm: serverTimestamp() },
+      { merge: true },
+    );
+  });
+});
+
+await permitido('motorista lê aviso de entrada da própria van', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notificacoes', 'avisoEntradaLeitura'), avisoEntrada({
+      uid: ALUNO_SEM_GRUPO, grupoId: GRUPO, nome: 'Pedro',
+    }));
+  });
+  return getDoc(doc(ctxMotorista(), 'notificacoes', 'avisoEntradaLeitura'));
+});
+
+await permitido('motorista lista avisos filtrando grupo e tipo', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notificacoes', 'avisoEntradaLista'), avisoEntrada({
+      uid: ALUNO_SEM_GRUPO, grupoId: GRUPO, nome: 'Pedro',
+    }));
+  });
+  return getDocs(
+    query(
+      collection(ctxMotorista(), 'notificacoes'),
+      where('grupoId', '==', GRUPO),
+      where('tipo', '==', 'solicitacao_entrada'),
+    ),
+  );
+});
+
+await permitido('aviso resposta_alterada continua funcionando (regressão 5A)', async () => {
+  await semearRespostaAlteravel();
+  return alterarComAviso(ctxAluno());
+});
+
+await proibido('aluno não cria aviso com destinatário de outra van', () =>
+  solicitarComAviso(ctxAlunoSemGrupo(), {
+    aviso: avisoEntrada({ destinatarioId: MOTORISTA_B }),
+  }));
+
+await proibido('aluno não forja o nome no aviso', () =>
+  solicitarComAviso(ctxAlunoSemGrupo(), {
+    aviso: avisoEntrada({ nome: 'Nome Falso' }),
+  }));
+
+await proibido('aluno não cria aviso para outro aluno', () =>
+  solicitarComAviso(ctxAlunoSemGrupo(), {
+    aviso: avisoEntrada({ uid: ALUNO }),
+  }));
+
+await proibido('aluno não cria notificação arbitrária de outro tipo', () =>
+  setDoc(doc(ctxAlunoSemGrupo(), 'notificacoes', 'avisoFalsoAluno'), {
+    grupoId: GRUPO, titulo: 'Falso', corpo: 'Falso', alunoIds: [ALUNO],
+    tipo: 'chamada_aberta', dados: {}, criadoEm: serverTimestamp(),
+  }));
+
+await proibido('motorista de outra van não lê aviso de entrada', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notificacoes', 'avisoEntradaCross'), avisoEntrada({
+      uid: ALUNO_SEM_GRUPO, grupoId: GRUPO, nome: 'Pedro',
+    }));
+  });
+  return getDoc(doc(ctxMotoristaB(), 'notificacoes', 'avisoEntradaCross'));
+});
+
+await proibido('aluno não lista notificações', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notificacoes', 'avisoEntradaListaAluno'), avisoEntrada({
+      uid: ALUNO_SEM_GRUPO, grupoId: GRUPO, nome: 'Pedro',
+    }));
+  });
+  return getDocs(
+    query(
+      collection(ctxAluno(), 'notificacoes'),
+      where('grupoId', '==', GRUPO),
+      where('tipo', '==', 'solicitacao_entrada'),
+    ),
+  );
+});
+
+await proibido('ID determinístico impede segundo aviso para a mesma solicitação', async () => {
+  await solicitarComAviso(ctxAlunoSemGrupo());
+  return setDoc(
+    doc(ctxAlunoSemGrupo(), 'notificacoes', idAvisoEntrada(ALUNO_SEM_GRUPO, GRUPO)),
+    avisoEntrada(),
+  );
+});
+
+await proibido('aviso de entrada não pode ser alterado', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notificacoes', 'avisoEntradaAlterado'), avisoEntrada({
+      uid: ALUNO_SEM_GRUPO, grupoId: GRUPO, nome: 'Pedro',
+    }));
+  });
+  return updateDoc(doc(ctxMotorista(), 'notificacoes', 'avisoEntradaAlterado'), {
+    corpo: 'Alterado',
   });
 });
 
