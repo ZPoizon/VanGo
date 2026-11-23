@@ -20,7 +20,7 @@ enum StatusViagem {
       case StatusViagem.emAndamento:
         return 'Em andamento';
       case StatusViagem.encerrada:
-        return 'Encerrada';
+        return 'Concluída';
       case StatusViagem.cancelada:
         return 'Cancelada';
     }
@@ -90,6 +90,7 @@ class Viagem {
   final List<ConfirmacaoViagem> confirmacoes;
 
   bool get cancelada => status == StatusViagem.cancelada;
+  bool get concluida => status == StatusViagem.encerrada;
 
   int get totalConfirmados => confirmacoes.length;
   int get totalEmbarcados =>

@@ -29,9 +29,22 @@ enum StatusConta {
 
 enum Turno {
   matutino,
-  noturno;
+  vespertino,
+  noturno,
+  outro;
 
-  String get label => this == Turno.matutino ? 'Matutino' : 'Noturno';
+  String get label {
+    switch (this) {
+      case Turno.matutino:
+        return 'Matutino';
+      case Turno.vespertino:
+        return 'Vespertino';
+      case Turno.noturno:
+        return 'Noturno';
+      case Turno.outro:
+        return 'Outro';
+    }
+  }
 }
 
 class Usuario {
@@ -47,7 +60,9 @@ class Usuario {
     this.fotoUrl,
     this.instituicao,
     this.turno,
+    this.turnoPersonalizado,
     this.enderecoEmbarque,
+    this.cep,
     this.referenciaEndereco,
     this.grupoId,
     this.motivoRecusa,
@@ -75,7 +90,15 @@ class Usuario {
   final String? fotoUrl;
   final String? instituicao;
   final Turno? turno;
+
+  /// Descrição livre quando [turno] é [Turno.outro]. Documentos antigos não
+  /// possuem este campo e continuam válidos.
+  final String? turnoPersonalizado;
   final String? enderecoEmbarque;
+
+  /// CEP do ponto de embarque, no formato `00000-000`.
+  /// Ausente em contas criadas antes desta versão.
+  final String? cep;
 
   /// Complemento do ponto de embarque (referência, portão, ponto de encontro).
   final String? referenciaEndereco;
@@ -99,7 +122,17 @@ class Usuario {
   bool get pendente => status == StatusConta.pendente;
 
   String? get faculdade => instituicao;
-  String? get periodo => turno?.label;
+
+  /// Texto exibido para o turno. Para [Turno.outro], usa a descrição informada
+  /// pelo aluno; documentos antigos com turnos conhecidos seguem inalterados.
+  String? get periodo {
+    if (turno != Turno.outro) return turno?.label;
+    final personalizado = turnoPersonalizado?.trim();
+    return personalizado != null && personalizado.isNotEmpty
+        ? personalizado
+        : Turno.outro.label;
+  }
+
   String? get endereco => enderecoEmbarque;
   String? get referencia => referenciaEndereco;
 
@@ -117,9 +150,14 @@ class Usuario {
     bool? conflitoAtivacao,
     String? telefone,
     String? fotoUrl,
+    bool limparFotoUrl = false,
     String? instituicao,
     Turno? turno,
+    String? turnoPersonalizado,
+    bool limparTurnoPersonalizado = false,
     String? enderecoEmbarque,
+    String? cep,
+    bool limparCep = false,
     String? referenciaEndereco,
     String? grupoId,
     String? motivoRecusa,
@@ -135,10 +173,14 @@ class Usuario {
       ativoFirestore: ativoFirestore ?? this.ativoFirestore,
       conflitoAtivacao: conflitoAtivacao ?? this.conflitoAtivacao,
       telefone: telefone ?? this.telefone,
-      fotoUrl: fotoUrl ?? this.fotoUrl,
+      fotoUrl: limparFotoUrl ? null : (fotoUrl ?? this.fotoUrl),
       instituicao: instituicao ?? this.instituicao,
       turno: turno ?? this.turno,
+      turnoPersonalizado: limparTurnoPersonalizado
+          ? null
+          : (turnoPersonalizado ?? this.turnoPersonalizado),
       enderecoEmbarque: enderecoEmbarque ?? this.enderecoEmbarque,
+      cep: limparCep ? null : (cep ?? this.cep),
       referenciaEndereco: referenciaEndereco ?? this.referenciaEndereco,
       grupoId: grupoId ?? this.grupoId,
       motivoRecusa: limparMotivoRecusa
