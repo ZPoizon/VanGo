@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:vango/app/theme/app_colors.dart';
@@ -50,6 +51,10 @@ class _LoginScreenState extends State<LoginScreen> {
       senha: _senha.text,
     );
 
+    if (resultado == LoginResultado.sucesso ||
+        resultado == LoginResultado.pendente) {
+      TextInput.finishAutofillContext(shouldSave: true);
+    }
     if (!mounted) return;
     setState(() {
       _carregando = false;
@@ -144,7 +149,9 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
-              child: Form(
+              child: AutofillGroup(
+                onDisposeAction: AutofillContextAction.cancel,
+                child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,6 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hint: 'seu@email.com',
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.username, AutofillHints.email],
                       validator: validarEmail,
                       prefixIcon: const Icon(
                         Icons.mail_outline_rounded,
@@ -192,6 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hint: 'Sua senha',
                       obscureText: !_mostrarSenha,
                       textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.password],
                       validator: validarSenha,
                       prefixIcon: const Icon(
                         Icons.lock_outline_rounded,
@@ -373,6 +382,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),
