@@ -339,7 +339,7 @@ class _AvisoChegadaCard extends StatelessWidget {
             !ativa
         ? store.historico.first
         : null;
-    final destino = ativa ? viagem!.id : '';
+
     final ultimaViagemConcluida =
         store.historico.isNotEmpty &&
             store.historico.first.concluida &&
@@ -444,10 +444,12 @@ class _AvisoChegadaCard extends StatelessWidget {
       );
     }
 
+    if (!ativa) return const SizedBox.shrink();
+
     return VangoCard(
       color: AppColors.accentSoft,
       borderColor: AppColors.accent,
-      onTap: () => context.push('/student/arrival/$destino'),
+      onTap: () => context.push('/student/arrival/${viagem!.id}'),
       child: Row(
         children: [
           Container(
@@ -468,7 +470,7 @@ class _AvisoChegadaCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ativa ? 'A van está chegando!' : 'Avisos da van',
+                  'A van está chegando!',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -477,9 +479,7 @@ class _AvisoChegadaCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  ativa
-                      ? 'Toque para confirmar que você está indo.'
-                      : 'Nenhum aviso ativo. Toque para ver a prévia.',
+                  'Toque para confirmar que você está indo.',
                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
                 ),
               ],
